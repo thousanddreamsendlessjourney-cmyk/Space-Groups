@@ -1,72 +1,76 @@
-# Spacegroup Atlas — Symmetry Lab v0.2
+# Spacegroup Atlas v0.3 — Symmetry Lab
 
-A room-scale symmetry laboratory for Meta Quest 3 Browser (WebXR) and desktop browsers. No libraries, account, runtime build process, CDN, or installation required. Published as a static website.
+Experimental room-scale crystallography viewer for Meta Quest 3 Browser and desktop WebGL2. The software is a self-contained static website and does not require a JS framework or external CDN. This release repairs v0.2's visibility budget and separates **contained motifs**, **full-cell patterned sheets**, and **sections through a three-dimensional space-group-invariant field**.
 
-**This is a prototype, not a headset-validated release.** The group operations and assets pass automatic checks; shader execution, input mapping, and framerate have not yet been verified on physical Quest 3 hardware.
+**Validation disclosure:** JavaScript syntax and mathematical/asset generation tests have passed. Shader compilation, 3D appearance, interaction, and framerate have NOT been confirmed on physical Quest 3 hardware. The browser available in the development environment could not provide a WebGL2 context. Treat this as an experimental build, not a headset-validated release.
 
-## Install / update GitHub Pages
+## Installing / updating your existing GitHub Pages project
 
-1. Download the release ZIP, and **extract** it on your computer.
-2. In your **public GitHub repository**, remove the old top-level `index.html`, `main.js`, and (if present) `style.css`. You can also leave older unrelated files, although removing them keeps the repository clean.
-3. Upload **the contents** of the extracted `Spacegroup_Atlas_v0_2` folder (not its containing folder) into the repository **root**: `index.html`, `main.js`, `style.css`, `assets/`, `README.md`.
-4. Ensure Settings → Pages → Deploy from a branch → `main` → `/(root)` is enabled. Visit your existing `https://<username>.github.io/<repository>/` URL.
-5. Open the same HTTPS link in Meta Quest Browser and choose **ENTER IMMERSIVE VR**.
+1. Unzip `Spacegroup_Atlas_Quest3_v0.3.zip` on Windows.
+2. In your **existing** GitHub repository, upload the **contents of the extracted folder** to the **repository root**, replacing the existing `index.html`, `main.js`, `style.css`, and `README.md`. Keep the `assets/` directory structure unchanged. You can leave the older asset files because their names are unchanged.
+3. Commit the changes. Your Pages settings (Deploy from branch -> main -> /(root)) and URL can stay the same.
+4. Refresh the Pages address in your Quest Browser; a hard reload may be needed if it cached the previous JavaScript.
 
-If you'd rather make a fresh repository, upload the unzipped contents to the empty repository and enable GitHub Pages the same way. All assets must retain their relative paths; `assets/archer.mesh`, etc., are loaded by `main.js`.
+### Local PC test, with no Python installation
 
-For testing on PC, it is preferable to use a local HTTP server rather than opening `index.html` directly: e.g. `python -m http.server 8000` from the extracted project folder and then open `http://localhost:8000/`.
+Extract the ZIP. **Double-click `Start-PC-Test.bat`**, which launches the included Windows PowerShell HTTP server and opens `http://localhost:8765/` in a browser. Keep its terminal window open while testing. This is required because the app's `.mesh` files cannot normally be loaded by `fetch` from a `file:///` URL. If the port is occupied, close the previous testing server before starting this one.
 
-## Controller mappings (Quest Touch)
+## New in v0.3
 
-| Action | Controller |
+- **Exact space-group operations:** P1 (#1), P-1 (#2), Pm (#6, a-unique setting), P4 (#75), P4₁ (#76), P4mm (#99), Pmmm (#47), and Pm-3m (#221). Affine group operations and screw motions have mathematical tests.
+- **No silent radius reduction.** Requested radius is 2–8 lattice periods (default 6), with fully visible inner radius independently adjustable (default 4). No geometric copy cap automatically changes the radius when a higher-order group is chosen. The user can reduce radius if performance becomes problematic.
+- **Opaque contrast fade (default).** Texture surfaces stay fully opaque and are mixed toward the background color as the distance increases. This avoids the back-facing polygon bleed of v0.2's alpha-blend setting and the pixel holes of v0.2's Bayer screen-door setting. However, faded opaque objects still write depth and may hide farther objects! All five fade modes can be compared: contrast, no fade within crop, screen-door (experimental), alpha blend (experimental), and hard cutoff.
+- **Actual copy location controls the fade**, rather than the integer cell center. Viewer-relative fading uses continuous fractional lattice coordinates. Specimen-relative fading is the default. Viewer-following mode uses a one-cell preload halo.
+- **Neutral gray guide lattice**, distinct from the colored Quest Guardian boundary.
+- **Representation selector:**
+  - `Contained 3D motif orbit`: actual Kenney Mini Forest archer, target, or tree, with textured rigid orbit copies. Same click-to-carry/click-to-release controller behavior as v0.2; you may cross fundamental-domain boundaries, creating informative overlaps.
+  - `2D cell-filling sheets`: full square cell tiles whose copies form the complete orbit of a planar sheet under the 3D space group. Source is Kenney Pattern Pack or Pattern Pack Lines. Symmetry-equivalent coincident sheets are deduplicated to prevent z-fighting. A group-invariant volumetric texture colors the sheets, and surface-coverage threshold defaults to ~30% to preserve sightlines. These are **sheets spanning entire lattice tiles**, not miniature contained image panels. They are not solid three-dimensional fundamental-domain skins.
+  - `3D fill field · viewer-following cross-section`: a movable full-plane section through a *separate three-dimensional periodic pattern* generated from the selected Kenney image and the entire group. It does **not** silently change the selected space group or the selected archer/tree/target. The section follows headset orientation and position by default while sampling a field fixed in specimen coordinates. Turning off “Slice follows headset” freezes the section frame at the current viewpoint. “Slice distance” controls the plane's offset ahead of the headset.
+- **Symmetry-generator demonstration** is separate from the imported forest mesh's own skeleton animation (which is not implemented). A temporary highlighted copy moves along a proper quarter-turn or screw transformation while the original orbit remains stationary. Reflection-only and inversion-only groups have no continuous proper-rotation demonstration yet; the control does not switch groups.
+- **Toggle physical play-area floor:** uses the actual `bounded-floor` WebXR boundary polygon when the browser exposes it. Otherwise uses the tracked `local-floor` reference and a plain fallback floor. It is independent of the mathematical specimen; toggling does not teleport the viewer, align a lattice cell, or disable joystick flight. The headset's own Guardian boundary remains the safety system; this application floor is visual only.
+- **In-world menu (B)** is still world-anchored instead of attached to the face; larger with additional representation, fade, scale, floor, and section controls.
+
+## Quest Touch controls
+
+| Action | Controls |
 |---|---|
-| Walk / strafe in head-heading direction | Left thumbstick |
-| Snap turn 30° | Right thumbstick left/right |
-| Fly up/down (when ground off) | Right thumbstick up/down |
-| **Pick up / release** nearest aimed orbit copy | **Left trigger** |
-| Open/close world-anchored readable menu | **Right B** |
-| In menu: select row | Right thumbstick up/down |
-| In menu: decrease/increase setting | Right thumbstick left/right |
-| In menu: activate/increase setting | Right A / right trigger |
-| Cycle space group forward/back | Right A / left Y outside menu |
-| Cycle motif | Left X outside menu |
+| Walk / strafe | Left thumbstick |
+| Snap-turn | Right thumbstick left/right |
+| Fly vertically | Right thumbstick up/down (independent of floor toggle) |
+| Pick up / release orbit copy | Left trigger, **contained 3D motif mode only** |
+| Menu open / close | Right B |
+| Menu row navigation | Right thumbstick up/down |
+| Menu modify highlighted setting | Right thumbstick left/right or A |
+| Change group (outside menu) | Right A / left Y |
+| Change 3D motif (outside menu) | Left X |
 
-For picking, point the left controller at a motif and squeeze its trigger. If no ray hit is found, the app searches for a nearby motif within 65 cm of your head. Another left-trigger click drops it. The seed's complete orbit updates in real time; the selected copy moves with the **headset-derived upright body frame**, so looking up does not pitch the object. Because no torso tracker is used, turning your head left/right also rotates that frame.
+Menu and joystick bindings were inherited from v0.2 and need headset validation. The body-locked motif is positioned relative to the tracked headset's upright heading, not a tracked torso; looking up/down does not pitch it.
 
-The world menu appears in a **fixed position in the virtual room when opened**; it does not follow your eyes. Use B to dismiss it. The outer HTML controls are available on desktop without exiting VR.
+Desktop: WASD move, Q/E turn, mouse drag look, R/F move vertically, C select/carry, V release, brackets cycle groups, M cycle forest motif.
 
-Desktop: WASD move; Q/E turn; R/F ascend/descend; mouse drag look; C attach/V release (aim from gaze); `[` and `]` cycle group; M cycles motif; H opens/closes a world menu.
+## Symmetry and limits
 
-## Experiments
+The infinite source pattern is described by the exact operations `x -> R x + t`. Its full orbit stays invariant if a seed is carried, even if copies overlap. Initial contained-motif size is conservatively bounded by a sphere fitting inside an orbit Dirichlet domain. This is not a complete mesh-vs-polyhedron collision check; crossing cell/domain boundaries is intentional and unrestrained.
 
-- **Mirror-carrying (`Pm`, #6):** start with the archer. Approach one copy, aim and pick it up with the left trigger, walk past a mirror plane, and observe its reflected partner. The **whole orbit remains continuous**. A notification marks changes in the canonical representative; the world geometry itself never jumps. The setting uses the **a-unique** realization with normal along X.
-- **Room-scale specimen:** start with 60 cm periods, adjustable to 10–125 cm. The finite taxicab crop uses smooth per-instance screen-door fade. In the 'follows viewer' setting the fade center is continuous in lattice coordinates, not snapped to whichever cell contains your head. The pool includes a zero-opacity halo to prevent a visible rebuild seam. The GPU budget may **reduce the effective radius**, notably for highly symmetric groups with many copies; this is reported in the status panel.
-- **Fundamental-domain-safe preset:** uses a conservative centered sphere that fits inside the orbit Dirichlet domain at the initial seed location. This is **not an arbitrary polyhedral mesh clip** or a full dynamic collision solver. Once picked up, the motif may cross boundaries and overlap orbit members. For static meshes, containment within the safe sphere guarantees nonintersecting copies at initial placement. Touching or collisions are not automatically prevented after a move.
-- **Opaque or line pattern panels:** choose Opaque or Line motif and switch five Kenney texture variants. The small panels act as 2D oriented motifs in 3D; they are not full polyhedral wallpaper skins yet.
-- **Screw cross-section:** activate **3D field cross-section**, which switches to `P4₁` if necessary. The shader constructs a 3D periodic field by symmetrizing a spatial kernel under four screw powers. A horizontal slice shows its intersection; slide **Slice height** or enable animation to sweep through height. It is a procedural invariant field, **not yet an imported custom 3D volume filling the fundamental polyhedron**. The slice's appearance changes under the screw quarter-turn.
-- **Animation:** with `P4`, `P4₁`, `P4mm`, `Pmmm`, or `Pm-3m`, the animation sweeps the seed through a **continuous interpolation toward a proper group generator** and regenerates its entire orbit. At each time the orbit is still exactly symmetric. For the `P4₁` slice, animation moves the section plane vertically. Improper operations (mirrors/inversion) cannot be connected continuously to identity by proper rigid rotations, so those groups have no rigid generator animation yet.
-- **Anchors:** the menu's Reference anchor cycles among volume center, face center, vertex, and edge midpoint. It translates the **entire specimen** to bring the reference point in front of the viewer, without teleporting the physically tracked player. These are reference-cell positions, not guaranteed distinct Wyckoff classes in every group.
+The three-dimensional fill pattern is baked to a **48 x 48 x 48 RGBA8 voxel texture** by identifying source coordinates through all the group's operations. At the voxel grid positions, the pattern is exactly equivariant for the signed-permutation rotations and quarter-cell screw displacement used in this release (verified for the cubic and screw groups). Sampling is an approximation between those grid points. The plane views (and the source 2D textures) do not individually have to be invariant under every three-dimensional group operation, but the set of symmetry-orbit planes and the sampled 3D field are group invariant.
 
-## Scope and exactness
+**Finite cropping and distance fading break the global translational symmetry of the displayed image**, even though the mathematical source remains symmetric. The matte physical floor, highlights, viewer, and WebXR menu are reference elements outside the mathematical specimen. Opaque contrast fading does not make far geometry transparent; it only reduces its contrast while it continues to occlude. Standard alpha blending and screen-door rendering remain explicitly experimental.
 
-Included groups: `P1` (#1), `P-1` (#2), `Pm` (#6; a-unique setting), `P4` (#75), `P4₁` (#76), `P4mm` (#99), `Pmmm` (#47), `Pm-3m` (#221).
+## Performance expectations
 
-Each symmetry acts as an affine isometry `x ↦ R x + t`, with integral lattice translations and proper fractional screw displacement. Each orbit copy draws the same transformed seed. Carrying a visible copy with group operation `g` and body-motion increment `D` updates the canonical seed pose as `H_new = g⁻¹ D g H_grab`.
+GPU-instanced static meshes are reused for all orbit copies. There is no geometry regeneration per frame during head motion (except when the viewer-centered *cell pool* moves to a new index); only instance transforms and shader uniforms change. At radius 6, the full cubic group can draw approximately 18,096 archer copies with specimen-centered fading, substantially more than the old v0.2 budget. The model is low-poly, but this could still cause Quest GPU overload, particularly in stereoscopic rendering. **If you see judder, start by lowering the crop radius to 3–4 periods**, or use tree/target. Increasing the radius beyond 6 on Pm-3m is an intentional stress test, not a performance guarantee.
 
-The infinite **mathematical pattern** is exactly symmetric, but **any finite crop, viewer-relative fade, guide, ground reference, highlighting notification, and physical observer are not part of that invariant pattern**. The actual GPU display is finite and approximate. On screen-door fading, stereoscopic dithering and temporal shimmering are possible; an `Alpha blending (experimental)` comparison and a `Hard cutoff` mode are also supplied.
+## Licensing and sources
 
-## Assets, licensing, and performance
+The supplied Kenney Mini Forest, Pattern Pack, and Pattern Pack Lines assets are CC0, and their license statements are preserved in `assets/`. The forest mesh is the original model and texture converted to a compact static WebGL format; no artist rig animation is currently supported. App source is MIT licensed (see `LICENSE`).
 
-The static forest models `target`, `tree`, and `archer` were converted from **Kenney Mini Forest (CC0)** to compact interleaved mesh data, retaining the source color-map image. Archer skeletal animations are deliberately not imported: this release uses its **rest pose** and applies rigid-space-group actions to that pose. The opaque and line patterns come from **Kenney Pattern Pack and Pattern Pack Lines (CC0)**. Their three original license notices are retained in `assets/`.
+## Developer checks
 
-The JavaScript/CSS and instructions are MIT licensed (see `LICENSE`). The Kenney assets remain CC0 (credit not legally required; generously provided by [Kenney](https://kenney.nl/)).
+From a machine with Node.js:
 
-Optimization: WebGL2 instanced rendering with shared static geometry, fixed-size per-instance buffers, vertex-computed taxicab fades, and a hard per-motif copy budget. The code does not ship Three.js, and does not issue individual draw calls per copy. The shader's Bayer dither uses screen coordinates and may cause **stereo mismatch or shimmer** on a headset; compare alternate fades. The prototype is intentionally not guaranteed to hold a target framerate on an untested physical Quest 3.
+```
+node --check main.js
+node tests/mathematical_checks.js
+```
 
-## Verify source
-
-`node --check main.js`
-
-`node tests/mathematical_checks.js`
-
-The second script uses a mock WebGL context to verify the group closures, orthogonality, screw powers, and asset loading/instance generation. It does **not** validate shader compilation, headset XR tracking, or runtime frame rate.
+These tests exercise group closure, orthogonality, screw operation, crop coverage, sheet deduplication, mesh loading, and discrete field equivariance. They use a fake WebGL API and **do not** verify actual graphics-driver shader compilation, frame rates, Quest WebXR controllers, or real Guardian boundary availability.
