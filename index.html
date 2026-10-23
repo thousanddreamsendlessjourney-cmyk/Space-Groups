@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#08111d"><title>Spacegroup Atlas · Symmetry Lab 0.3</title>
-<link rel="stylesheet" href="style.css">
+<meta name="theme-color" content="#08111d"><title>Spacegroup Atlas · Symmetry Lab 0.3.1</title>
+<link rel="stylesheet" href="style.css?v=0.3.1">
 </head>
 <body>
 <canvas id="scene" aria-label="Interactive symmetry laboratory"></canvas>
 <section id="panel" aria-label="Laboratory controls">
-  <header><div class="eyebrow">QUEST 3 · WEBXR</div><h1>SPACEGROUP <em>ATLAS</em></h1><div class="version">SYMMETRY LAB · VERSION 0.3</div></header>
+  <header><div class="eyebrow">QUEST 3 · WEBXR</div><h1>SPACEGROUP <em>ATLAS</em></h1><div class="version">SYMMETRY LAB · VERSION 0.3.1</div></header>
   <div class="scroll">
     <p class="info">Exact symmetry orbits, complete 2D cell-filling sheets, and slices of invariant 3D fields. The finite viewing window is separate from the crystal.</p>
     <div class="field"><label for="group">Space group</label><select id="group"></select></div>
@@ -32,5 +32,6 @@
 </section>
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="error" role="alert" hidden></div>
-<script src="main.js" defer></script>
+<script src="assets-inline.js?v=0.3.1"></script>
+<script src="main.js?v=0.3.1" defer></script>
 </body></html>

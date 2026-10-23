@@ -1,19 +1,26 @@
-# Spacegroup Atlas v0.3 — Symmetry Lab
+# Spacegroup Atlas v0.3.1 — Shader Startup Fix
 
 Experimental room-scale crystallography viewer for Meta Quest 3 Browser and desktop WebGL2. The software is a self-contained static website and does not require a JS framework or external CDN. This release repairs v0.2's visibility budget and separates **contained motifs**, **full-cell patterned sheets**, and **sections through a three-dimensional space-group-invariant field**.
 
-**Validation disclosure:** JavaScript syntax and mathematical/asset generation tests have passed. Shader compilation, 3D appearance, interaction, and framerate have NOT been confirmed on physical Quest 3 hardware. The browser available in the development environment could not provide a WebGL2 context. Treat this as an experimental build, not a headset-validated release.
+**Validation disclosure:** JavaScript syntax, group mathematics, asset integrity, and OpenGL ES 3 shader compilation AND linking have passed. Visual appearance, input handling, and framerate on a physical Quest 3 remain unverified. The browser available in the development environment could not provide a WebGL2 context.
 
 ## Installing / updating your existing GitHub Pages project
 
-1. Unzip `Spacegroup_Atlas_Quest3_v0.3.zip` on Windows.
-2. In your **existing** GitHub repository, upload the **contents of the extracted folder** to the **repository root**, replacing the existing `index.html`, `main.js`, `style.css`, and `README.md`. Keep the `assets/` directory structure unchanged. You can leave the older asset files because their names are unchanged.
+1. Unzip `Spacegroup_Atlas_Quest3_v0.3.1_Fixed.zip` on Windows.
+2. In your **existing** GitHub repository, upload the **contents of the extracted folder** to the **repository root**, replacing the existing `index.html`, `main.js`, `style.css`, `assets-inline.js`, and `README.md`. Keep the `assets/` directory structure unchanged. You can leave the older asset files because their names are unchanged.
 3. Commit the changes. Your Pages settings (Deploy from branch -> main -> /(root)) and URL can stay the same.
 4. Refresh the Pages address in your Quest Browser; a hard reload may be needed if it cached the previous JavaScript.
 
-### Local PC test, with no Python installation
+### Local PC test (no local server required)
 
-Extract the ZIP. **Double-click `Start-PC-Test.bat`**, which launches the included Windows PowerShell HTTP server and opens `http://localhost:8765/` in a browser. Keep its terminal window open while testing. This is required because the app's `.mesh` files cannot normally be loaded by `fetch` from a `file:///` URL. If the port is occupied, close the previous testing server before starting this one.
+Extract the ZIP and double-click `index.html`. This repair includes `assets-inline.js`, which embeds the 3D meshes and textures so browsers do not need `fetch()` from `file:///` paths. You can also use the existing GitHub Pages address over HTTPS. No `.bat` launcher or PowerShell server is included.
+
+### Corrected startup errors in v0.3.1
+
+- Added missing `highp sampler3D` precision to both 3D-texture fragment shaders. This previously caused shader compilation failure before the group dropdown could populate.
+- Explicitly matched integer uniform precision (`highp int`) between the vertex and fragment stages. This previously caused the primary rendering program to fail at link time even after the first shader error was fixed.
+- The group dropdown is now populated before shader compilation, and uncaught initialization failures are displayed onscreen.
+- Asset loading works from both `file:///` and GitHub Pages. Cache-busting version parameters on script links help with stale GitHub Pages files.
 
 ## New in v0.3
 

@@ -1,8 +1,11 @@
-/* Spacegroup Atlas 0.3 — self-contained WebGL2 + WebXR, no CDN.
+/* Spacegroup Atlas 0.3.1 — self-contained WebGL2 + WebXR, no CDN.
    CC0 geometry: Kenney Mini Forest and Pattern Packs. Source MIT.
    Group actions remain exact; the finite/faded viewing window is not a space-group invariant. */
 (()=>{'use strict';
 const $=id=>document.getElementById(id),cv=$('scene');
+// Make initialization failures visible even if they occur before the render loop.
+window.addEventListener('error',event=>{const panel=$('error');if(panel){panel.hidden=false;panel.textContent='Initialization error: '+(event.error?.stack||event.message||'Unknown error');}});
+window.addEventListener('unhandledrejection',event=>{const panel=$('error');if(panel){panel.hidden=false;panel.textContent='Initialization error: '+(event.reason?.stack||String(event.reason));}});
 const gl=cv.getContext('webgl2',{alpha:false,depth:true,antialias:true,xrCompatible:true,powerPreference:'high-performance'});
 if(!gl){$('error').hidden=false;$('error').textContent='WebGL2 is required; use Quest Browser or a modern desktop browser.';return;}
 const PI=Math.PI, clamp=(x,a,b)=>Math.max(a,Math.min(b,x)),mod=x=>((x%1)+1)%1;
@@ -39,8 +42,9 @@ function rod(a,b,w){const delta=sub(b,a),l=len(delta),y=norm(delta),axis=Math.ab
 const state={group:2,motif:'archer',representation:'motif',family:'opaque',pattern:0,coverage:.30,period:.6,radius:6,fadeStart:4,occupancy:.25,safety:true,fadeViewer:false,grid:true,ground:false,animate:false,sliceFollow:true,sectionY:1.2,fadeStyle:'contrast',origin:[0,1.38,-1.7],seedFrac:[.21,.34,.27],seed:mid(),safeRadius:0,seedRadius:1,selected:null,dirty:true,anchor:0,menu:false,menuRow:0,sliceAuto:false,followCenter:[0,0,0],instances:[],sceneCount:0,fadeEnd:6};
 const player={x:0,y:0,z:0,yaw:0,pitch:0,speed:1.15};
 let session=null,ref=null,lastFrame=0,trackHead=null,trackFrame=null,keys=new Set(),pressed=new Map(),menuPose=mid(),drag=false,dragLast=null,grab=null,nearSelected=-1,texLoaded=false,toastTime=0;
+wire(); // Populate controls before compiling WebGL shaders.
 function notify(msg){$('toast').textContent=msg;$('toast').classList.add('show');toastTime=performance.now()+2600;}
-function error(err){$('error').hidden=false;const msg=String(err?.stack||err);$('error').textContent=(location.protocol==='file:' ? 'LOCAL FILE ACCESS BLOCKED: Open Start-PC-Test.bat in this folder, then use http://localhost:8765/ instead of double-clicking index.html.\n\n' : '')+msg;console.error(err);}
+function error(err){$('error').hidden=false;$('error').textContent='Spacegroup Atlas could not start:\n'+String(err?.stack||err);console.error(err);}
 function compile(vs,fs){const p=gl.createProgram();for(const [type,src] of [[gl.VERTEX_SHADER,vs],[gl.FRAGMENT_SHADER,fs]]){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));gl.attachShader(p,s);gl.deleteShader(s);}gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(p));return p;}
 const VS=`#version 300 es
 precision highp float;
@@ -59,6 +63,8 @@ if(vFade<=.0001)gl_Position=vec4(0.,0.,2.,1.);
 }`;
 const FS=`#version 300 es
 precision highp float;
+precision highp sampler3D;
+precision highp int;
 in vec3 vNormal,vTint,vPos;in vec2 vUV;in float vFade;
 uniform sampler2D uTex;uniform sampler3D uVolume;
 uniform int uTextured,uFadeStyle,uIsFill;uniform float uCoverageThreshold,uPeriod;uniform vec3 uLight,uOrigin;
@@ -84,6 +90,7 @@ out vec3 vPos;
 void main(){vec4 wp=uPlane*vec4(aXY,0.,1.);vPos=wp.xyz;gl_Position=uVP*wp;}`;
 const planeFS=`#version 300 es
 precision highp float;
+precision highp sampler3D;
 in vec3 vPos;uniform sampler3D uVolume;uniform vec3 uOrigin;uniform float uPeriod,uCoverageThreshold;
 out vec4 outColor;
 void main(){vec4 f=texture(uVolume,(vPos-uOrigin)/uPeriod);if(f.a<uCoverageThreshold)discard;outColor=vec4(f.rgb,1.);}`;
@@ -112,8 +119,16 @@ function panelGeom(){const v=[],idx=[0,1,2,0,2,3];for(const [x,y,u,w] of [[-.5,-
 let rods=mesh(boxGeom()),panels=mesh(panelGeom()),motifs={},demoMeshes={},texture={},patternPixels={},loading=true;let volumeTexture=null,volumeDirty=true,volumeThreshold=.5,sheetSeed=mid(),floorMesh=null,floorSource='none',fixedSectionPose=null;
 function upload(obj,arr){obj.records=arr;obj.instances=arr.length;const v=new Float32Array(arr.length*22);let i=0;for(const d of arr){v.set(d.m,i);i+=16;v.set(d.tint,i);i+=3;v.set(d.cell,i);i+=3;}gl.bindBuffer(gl.ARRAY_BUFFER,obj.instance);gl.bufferData(gl.ARRAY_BUFFER,v,gl.DYNAMIC_DRAW);}
 function makeTex(img){const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,img);gl.generateMipmap(gl.TEXTURE_2D);return t;}
-function loadImg(file,k){return new Promise((resolve,reject)=>{const im=new Image();im.onload=()=>{if(k){const can=document.createElement('canvas');can.width=im.naturalWidth;can.height=im.naturalHeight;const cx=can.getContext('2d',{willReadFrequently:true});cx.drawImage(im,0,0);patternPixels[k]={data:cx.getImageData(0,0,can.width,can.height).data,width:can.width,height:can.height};}resolve(makeTex(im));};im.onerror=()=>reject(Error('Missing '+file));im.src=file;});}
-async function loadAssets(){const paths=['target','tree','archer'];for(const name of paths){const data=await(await fetch(`assets/${name}.mesh`)).arrayBuffer(),dv=new DataView(data),n=dv.getUint32(0,true),count=dv.getUint32(4,true);const v=new Float32Array(data.slice(8,8+n*32)),i=new Uint16Array(data.slice(8+n*32,8+n*32+count*2));motifs[name]=mesh({v,i});demoMeshes[name]=mesh({v,i});upload(demoMeshes[name],[rec(mid(),[1.1,.92,.55],[0,0,0])]);motifs[name].radius=Math.max(...Array.from({length:n},(_,k)=>Math.hypot(v[k*8],v[k*8+1],v[k*8+2])));}
+// Embedded binary assets make file:/// desktop testing work without a local server.
+// Hosted copies use the same data as an emergency fallback if an asset request fails.
+const EMBEDDED=window.SPACEGROUP_EMBEDDED_ASSETS||{};
+function embeddedBytes(file){const encoded=EMBEDDED[file];if(!encoded)return null;
+ const bin=atob(encoded),out=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);return out.buffer;}
+async function loadBinary(file){if(location.protocol==='file:'){const data=embeddedBytes(file);if(data)return data;throw Error('Missing embedded asset: '+file);}
+ try{const response=await fetch(file);if(!response.ok)throw Error('HTTP '+response.status+' loading '+file);return await response.arrayBuffer();}
+ catch(e){const fallback=embeddedBytes(file);if(fallback)return fallback;throw e;}}
+function loadImg(file,k){return new Promise((resolve,reject)=>{const im=new Image();im.onload=()=>{if(k){const can=document.createElement('canvas');can.width=im.naturalWidth;can.height=im.naturalHeight;const cx=can.getContext('2d',{willReadFrequently:true});cx.drawImage(im,0,0);patternPixels[k]={data:cx.getImageData(0,0,can.width,can.height).data,width:can.width,height:can.height};}resolve(makeTex(im));};im.onerror=()=>{if(!im.dataset.embeddedRetry && EMBEDDED[file]){im.dataset.embeddedRetry='1';im.src='data:image/png;base64,'+EMBEDDED[file];return;}reject(Error('Missing '+file));};im.src=(location.protocol==='file:'||!navigator.onLine)&&EMBEDDED[file]?'data:image/png;base64,'+EMBEDDED[file]:file;});}
+async function loadAssets(){const paths=['target','tree','archer'];for(const name of paths){const data=await loadBinary(`assets/${name}.mesh`),dv=new DataView(data),n=dv.getUint32(0,true),count=dv.getUint32(4,true);const v=new Float32Array(data.slice(8,8+n*32)),i=new Uint16Array(data.slice(8+n*32,8+n*32+count*2));motifs[name]=mesh({v,i});demoMeshes[name]=mesh({v,i});upload(demoMeshes[name],[rec(mid(),[1.1,.92,.55],[0,0,0])]);motifs[name].radius=Math.max(...Array.from({length:n},(_,k)=>Math.hypot(v[k*8],v[k*8+1],v[k*8+2])));}
 texture.forest=await loadImg('assets/forest_colormap.png');for(const type of ['opaque','line'])for(let i=0;i<5;i++)texture[type+i]=await loadImg(`assets/${type}_${(type==='opaque'?[7,12,16,23,27]:[2,7,12,18,25])[i].toString().padStart(2,'0')}.png`,type+i);
 loading=false;changeGroup(state.group);syncUI();notify('Ready · symmetry specimen loaded');}
 // CPU-baked, group-invariant 3D field: canonicalize each voxel through the entire finite
@@ -214,7 +229,7 @@ const menuCanvas=document.createElement('canvas');menuCanvas.width=1200;menuCanv
 const MENU=['Group','Representation','3D motif','Pattern pack','Pattern variant','Cell size','Crop radius','Full opacity through','Motif occupancy','Fade mode','Viewer-centered fade','Lattice guides','Physical room floor','Safe starting size','Slice follows headset','Slice distance','Generator demonstration','Reference anchor','Close menu'];
 const ANCHORS=[['volume center',[.5,.5,.5]],['face center',[.5,.5,0]],['cell corner',[0,0,0]],['edge midpoint',[.5,0,0]]];
 function menuValue(k){switch(k){case 0:return GROUPS[state.group].symbol;case 1:return state.representation;case 2:return state.motif;case 3:return state.family;case 4:return String(state.pattern+1);case 5:return Math.round(state.period*100)+' cm';case 6:return state.radius+' cells';case 7:return state.fadeStart+' cells';case 8:return Math.round(state.occupancy*100)+'%';case 9:return state.fadeStyle;case 10:return state.fadeViewer?'ON':'OFF';case 11:return state.grid?'ON':'OFF';case 12:return state.ground?'ON':'OFF';case 13:return state.safety?'ON':'OFF';case 14:return state.sliceFollow?'ON':'OFF';case 15:return state.sectionY.toFixed(2)+' m';case 16:return state.animate?'ON':'OFF';case 17:return ANCHORS[state.anchor][0];default:return '';}}
-function drawMenu(){ctx.clearRect(0,0,1200,1520);ctx.fillStyle='rgba(7,21,33,.96)';ctx.fillRect(0,0,1200,1520);ctx.strokeStyle='#528d9f';ctx.lineWidth=6;ctx.strokeRect(8,8,1184,1504);ctx.fillStyle='#85ebdf';ctx.font='bold 63px system-ui';ctx.fillText('SPACEGROUP ATLAS',58,110);ctx.fillStyle='#d4e5f4';ctx.font='35px system-ui';ctx.fillText('Room-scale symmetry lab  ·  0.3',60,166);
+function drawMenu(){ctx.clearRect(0,0,1200,1520);ctx.fillStyle='rgba(7,21,33,.96)';ctx.fillRect(0,0,1200,1520);ctx.strokeStyle='#528d9f';ctx.lineWidth=6;ctx.strokeRect(8,8,1184,1504);ctx.fillStyle='#85ebdf';ctx.font='bold 63px system-ui';ctx.fillText('SPACEGROUP ATLAS',58,110);ctx.fillStyle='#d4e5f4';ctx.font='35px system-ui';ctx.fillText('Room-scale symmetry lab  ·  0.3.1',60,166);
 MENU.forEach((title,i)=>{const y=234+i*63;ctx.fillStyle=i===state.menuRow?'rgba(55,154,165,.40)':'rgba(0,0,0,0)';ctx.fillRect(35,y-45,1130,56);ctx.fillStyle='#d7e8f8';ctx.font=i===state.menuRow?'bold 34px system-ui':'32px system-ui';ctx.fillText(title,63,y);ctx.fillStyle='#88ecdb';ctx.textAlign='right';ctx.fillText(menuValue(i),1123,y);ctx.textAlign='left';});ctx.font='30px system-ui';ctx.fillStyle='#aacbd4';ctx.fillText('Right stick: navigate / adjust    A: select    B: close',57,1480);
 gl.bindTexture(gl.TEXTURE_2D,menuTexture);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,menuCanvas);}
 function anchorFocus(){const [label,p]=ANCHORS[state.anchor];let target=[0,1.5,-1.45];if(trackHead){const dir=norm([-trackHead[8],0,-trackHead[10]]);target=[trackHead[12]+dir[0]*1.15,trackHead[13]-.15,trackHead[14]+dir[2]*1.15];}const desired=add(state.origin,scale(p,state.period));const d=sub(target,desired);state.origin=add(state.origin,d);state.seed=mm(mt(...d),state.seed);state.dirty=true;notify('Focus · '+label);}
@@ -383,6 +398,6 @@ for(const [name,fn] of Object.entries({group:v=>setVal('group',+v),representatio
 for(const k of ['safety','fadeViewer','grid','ground','animate','sliceFollow'])$(k).addEventListener('change',e=>setVal(k,e.target.checked));$('reset').onclick=resetAll;$('enter').onclick=enter;
 window.addEventListener('keydown',e=>{if(e.target instanceof HTMLInputElement||e.target instanceof HTMLSelectElement)return;keys.add(e.code);if(e.repeat)return;if(e.code==='BracketRight')changeGroup(state.group+1);if(e.code==='BracketLeft')changeGroup(state.group-1);if(e.code==='KeyM'){const a=['archer','target','tree'];setVal('motif',a[(a.indexOf(state.motif)+1)%a.length]);}if(e.code==='KeyH'){const head=mm(mt(player.x,player.y+1.64,player.z),ry(player.yaw));openMenu(head);}if(e.code==='KeyC'||e.code==='KeyV'){const h=mm(mt(player.x,player.y+1.64,player.z),ry(player.yaw));toggleGrab([h[12],h[13],h[14]],norm([-h[8],0,-h[10]]),h);}});
 window.addEventListener('keyup',e=>keys.delete(e.code));cv.addEventListener('pointerdown',e=>{drag=true;dragLast=[e.clientX,e.clientY];cv.setPointerCapture(e.pointerId);});cv.addEventListener('pointermove',e=>{if(!drag)return;player.yaw-=(e.clientX-dragLast[0])*.005;player.pitch=clamp(player.pitch-(e.clientY-dragLast[1])*.005,-1.25,1.25);dragLast=[e.clientX,e.clientY];});cv.addEventListener('pointerup',()=>drag=false);}
-try{wire();syncUI();loadAssets().catch(error);requestAnimationFrame(desktop);}catch(e){error(e);}
+try{syncUI();loadAssets().catch(error);requestAnimationFrame(desktop);}catch(e){error(e);}
 window.SPACEGROUP_DEBUG={GROUPS,state,closure,compose,key,cellOp,point,mm,resetAll,regen,changeGroup,canonicalKey,defaultSize,detR,get floorSource(){return floorSource},get volumeTexture(){return volumeTexture},get sheetCount(){return panels.instances}};
 })();
