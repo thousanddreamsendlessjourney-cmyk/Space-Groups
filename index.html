@@ -1,74 +1,32 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#071420" />
-  <title>Spacegroup Atlas — A Walkable Crystallography Laboratory</title>
-  <style>
-    :root { color-scheme: dark; font-family: 'Segoe UI', system-ui, sans-serif; }
-    * { box-sizing: border-box; }
-    body { margin: 0; overflow:hidden; background:#061321; color:#e9f6fa; }
-    #scene { width:100vw; height:100vh; display:block; touch-action:none; }
-    .panel { position:fixed; z-index:5; left:24px; top:22px; width:316px; max-width:calc(100vw - 32px); padding:20px 20px 17px; background:rgba(6,21,34,.91); border:1px solid rgba(104,200,206,.35); box-shadow:0 12px 42px rgba(0,0,0,.35); border-radius:14px; backdrop-filter:blur(18px); }
-    .eyebrow {font-size:10px;letter-spacing:2.4px;text-transform:uppercase;color:#7ce2d9;font-weight:700;}
-    h1 {font-weight:600;font-size:24px;letter-spacing:-.8px;margin:9px 0 5px;line-height:1.1;}
-    #sub {font-size:12px;line-height:1.5;color:#9cb8c8;margin:0 0 14px;}
-    .divider {height:1px;background:rgba(194,218,226,.16);margin:13px 0;}
-    label {display:block;font-size:11px;letter-spacing:.7px;font-weight:700;text-transform:uppercase;color:#8faebb;margin-bottom:7px;}
-    select,button {font-family:inherit;color:inherit;}
-    select {width:100%;background:#11293b;border:1px solid #36536a;border-radius:8px;padding:10px 9px;font-size:14px;cursor:pointer;}
-    .statbar {display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:13px;}
-    .stat {background:#112538;border-radius:8px;padding:9px 11px;}
-    .stat b {font-size:16px;font-weight:650;display:block;color:#e9fff8;}
-    .stat span {font-size:10px;color:#a4b6c1;letter-spacing:.3px;}
-    .controls {font-size:12px;color:#bbd0dc;line-height:1.85;}
-    .controls strong {color:#f4f9fe;font-weight:600;}
-    .checkrow {display:flex;align-items:center;justify-content:space-between;margin:11px 0;gap:10px;}
-    .checkrow label {margin:0;text-transform:none;letter-spacing:0;color:#d1e2e9;font-size:12px;font-weight:500;}
-    input[type=checkbox] {accent-color:#74ded4;width:16px;height:16px;}
-    input[type=range] {width:100%;accent-color:#74ded4;}
-    .rangehead {display:flex;justify-content:space-between;align-items:center;margin-top:12px;}
-    .rangehead label {margin:0;}
-    .rangehead span {font-size:11px;color:#7ce2d9;}
-    .primary {background:#75d9cf;color:#07252e;border:none;border-radius:8px;width:100%;padding:13px 10px;font-weight:750;font-size:13px;margin-top:14px;cursor:pointer;}
-    .primary:hover {background:#a5f4e9;}
-    #status {position:fixed;z-index:3;right:22px;top:22px;max-width:45vw;padding:10px 13px;border:1px solid rgba(122,171,180,.22);background:rgba(8,23,36,.75);border-radius:10px;color:#afc6d5;font:12px/1.5 ui-monospace,Consolas,monospace;text-align:right;pointer-events:none;}
-    #hint {position:fixed;bottom:23px;left:50%;transform:translateX(-50%);z-index:3;background:rgba(6,19,32,.72);border:1px solid rgba(171,202,214,.16);border-radius:50px;color:#bad0de;padding:10px 19px;font-size:12px;white-space:nowrap;pointer-events:none;}
-    #error {display:none;position:fixed;inset:auto 12px 12px 12px;background:#4c2430;color:white;border-radius:8px;padding:18px;z-index:99;font:13px/1.5 monospace;white-space:pre-wrap;}
-    .collapsed .details {display:none;}
-    #collapse {float:right;background:transparent;border:none;color:#8bc7d1;cursor:pointer;font-size:12px;padding:2px 4px;}
-    .small {font-size:11px;line-height:1.55;color:#8ca6b3;}
-    @media(max-width:650px) { .panel{left:12px;top:12px;padding:14px;width:275px} h1{font-size:20px} #status{display:none} #hint{font-size:10px;bottom:8px;padding:7px 10px;} }
-  </style>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#08111d"><title>Spacegroup Atlas · Symmetry Lab 0.2</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <canvas id="scene" aria-label="Interactive 3D space group world"></canvas>
-  <section id="panel" class="panel">
-    <button id="collapse" aria-label="Collapse controls">▴</button>
-    <div class="eyebrow">Crystallographic World Explorer • 01</div>
-    <h1>SPACEGROUP<br/>ATLAS</h1>
-    <p id="sub">An explorable periodic universe. Objects are generated from authentic affine space-group operations.</p>
-    <div class="details">
-      <label for="group">Space group</label>
-      <select id="group"></select>
-      <div class="statbar"><div class="stat"><b id="orbit">—</b><span>orbit points / cell</span></div><div class="stat"><b id="order">—</b><span>point group order</span></div></div>
-      <div class="rangehead"><label for="distance">Distant lattice radius</label><span id="distanceText">17 cells</span></div>
-      <input id="distance" type="range" min="7" max="24" step="1" value="17" />
-      <div class="rangehead"><label for="detail">Detailed radius</label><span id="detailText">3 cells</span></div>
-      <input id="detail" type="range" min="1" max="5" step="1" value="3" />
-      <div class="checkrow"><label for="grid">3D lattice scaffold</label><input type="checkbox" id="grid" checked /></div>
-      <div class="checkrow"><label for="mosaic">Ground mosaic guide</label><input type="checkbox" id="mosaic" checked /></div>
-      <div class="divider"></div>
-      <div class="controls"><strong>Desktop</strong> — Drag to look · WASD to walk · Shift to sprint · Q/E turn · 1–0 change groups</div>
-      <div class="controls" style="margin-top:6px"><strong>Quest 3</strong> — Left stick move · Right stick snap-turn · A next group · X previous group · B toggle scaffold · Y toggle mosaic</div>
-      <button class="primary" id="enter">ENTER VR ON QUEST</button>
-      <p class="small" id="secureHint">VR requires an HTTPS page in the Quest Browser. Desktop preview works locally.</p>
-    </div>
-  </section>
-  <div id="status">Initializing geometry...</div>
-  <div id="hint">A 3D lattice of points, edges, and symmetry-generated asymmetric sculptures</div>
-  <div id="error"></div>
-  <script src="main.js"></script>
-</body>
-</html>
+<canvas id="scene" aria-label="Interactive symmetry laboratory"></canvas>
+<section id="panel" aria-label="Laboratory controls">
+  <header><div class="eyebrow">QUEST 3 · WEBXR</div><h1>SPACEGROUP <em>ATLAS</em></h1><div class="version">SYMMETRY LAB · VERSION 0.2</div></header>
+  <div class="scroll">
+    <p class="info">Contained motifs, exact group orbits, and a finite room-scale lattice specimen. The room is an observation space, not part of the crystal.</p>
+    <div class="field"><label for="group">Space group</label><select id="group"></select></div>
+    <div class="field"><label for="motif">Motif / representation</label><select id="motif"><option value="archer">Archer · asymmetric</option><option value="target">Target · bilateral</option><option value="tree">Tree · near axial</option><option value="opaque">Opaque Kenney pattern</option><option value="line">Line-fill Kenney pattern</option></select></div>
+    <div class="field" id="textureRow"><label for="pattern">Pattern variant</label><select id="pattern"><option value="0">Pattern A</option><option value="1">Pattern B</option><option value="2">Pattern C</option><option value="3">Pattern D</option><option value="4">Pattern E</option></select></div>
+    <div class="range"><label for="period">Cell period <b id="periodValue">0.60 m</b></label><input id="period" type="range" min="0.10" max="1.25" step="0.05" value="0.60"></div>
+    <div class="range"><label for="radius">Crop / fade extent <b id="radiusValue">5 periods</b></label><input id="radius" type="range" min="2" max="5" step="1" value="5"></div>
+    <div class="range"><label for="occupancy">Motif size <b id="occupancyValue">25% of cell</b></label><input id="occupancy" type="range" min="5" max="35" step="1" value="25"></div>
+    <div class="switches"><label><input id="safety" type="checkbox" checked> Containment preset</label><label><input id="fadeViewer" type="checkbox"> Fade follows viewer</label><label><input id="grid" type="checkbox" checked> Show lattice edges</label><label><input id="ground" type="checkbox"> Snap to ground + grid</label><label><input id="animate" type="checkbox"> Animate proper generator</label><label><input id="slice" type="checkbox"> 3D field cross-section</label></div>
+    <div class="range"><label for="sectionY">Slice height <b id="sectionYValue">0.13 periods</b></label><input id="sectionY" type="range" min="0" max="1" step="0.005" value="0.13"></div>
+    <div class="field"><label for="fadeStyle">Fade rendering</label><select id="fadeStyle"><option value="dither">Screen-door / depth-writing</option><option value="alpha">Alpha blending (experimental)</option><option value="cut">Hard cutoff (reference)</option></select></div>
+    <div class="actions"><button id="reset" class="secondary">Reset seed + view</button><button id="enter" class="primary">ENTER IMMERSIVE VR</button></div>
+    <div id="status" role="status">Loading geometries…</div>
+    <p class="fine">Desktop: W A S D to move, drag to look; Q/E turn, R/F move vertically; C attach nearest visible copy, V release, [ / ] group, M motif, H menu. Quest: left stick moves, right stick turns/flies; left trigger toggles carry. B opens an in-world menu; right stick moves through its settings.</p>
+    <p class="fine">Meshes and textures © Kenney, CC0. No CDN or framework required. <a href="README.md" target="_blank">Instructions & mathematical notes</a></p>
+  </div>
+</section>
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="error" role="alert" hidden></div>
+<script src="main.js" defer></script>
+</body></html>
