@@ -1,4 +1,4 @@
-/* Spacegroup Atlas 0.3.1 — self-contained WebGL2 + WebXR, no CDN.
+/* Spacegroup Atlas 0.5 — self-contained WebGL2 + WebXR, no CDN.
    CC0 geometry: Kenney Mini Forest and Pattern Packs. Source MIT.
    Group actions remain exact; the finite/faded viewing window is not a space-group invariant. */
 (()=>{'use strict';
@@ -39,7 +39,7 @@ const point=(m,p)=>[m[0]*p[0]+m[4]*p[1]+m[8]*p[2]+m[12],m[1]*p[0]+m[5]*p[1]+m[9]
 const sub=(a,b)=>a.map((x,i)=>x-b[i]),add=(a,b)=>a.map((x,i)=>x+b[i]),scale=(a,s)=>a.map(v=>v*s),len=a=>Math.hypot(...a),norm=a=>scale(a,1/(len(a)||1));
 function rod(a,b,w){const delta=sub(b,a),l=len(delta),y=norm(delta),axis=Math.abs(y[1])>.92?[1,0,0]:[0,1,0],x=norm([axis[1]*y[2]-axis[2]*y[1],axis[2]*y[0]-axis[0]*y[2],axis[0]*y[1]-axis[1]*y[0]]),z=[x[1]*y[2]-x[2]*y[1],x[2]*y[0]-x[0]*y[2],x[0]*y[1]-x[1]*y[0]],p=scale(add(a,b),.5);
  return new Float32Array([x[0]*w,x[1]*w,x[2]*w,0,y[0]*l,y[1]*l,y[2]*l,0,z[0]*w,z[1]*w,z[2]*w,0,...p,1]);}
-const state={group:2,motif:'archer',representation:'motif',family:'opaque',pattern:0,coverage:.30,period:.6,radius:6,fadeStart:4,occupancy:.25,safety:true,fadeViewer:false,grid:true,ground:false,animate:false,sliceFollow:true,sectionY:1.2,fadeStyle:'contrast',origin:[0,1.38,-1.7],seedFrac:[.21,.34,.27],seed:mid(),safeRadius:0,seedRadius:1,selected:null,dirty:true,anchor:0,menu:false,menuRow:0,sliceAuto:false,followCenter:[0,0,0],instances:[],sceneCount:0,fadeEnd:6};
+const state={group:2,motif:'archer',volume:'oak',representation:'motif',family:'opaque',pattern:0,coverage:.80,sheetOpacity:.80,densityCoverage:.30,period:.6,radius:4,fadeStart:3,occupancy:.25,scaleMotif:true,quality:'safe',exterior:false,safety:true,fadeViewer:false,grid:true,ground:false,animate:false,sliceFollow:true,sectionY:1.2,fadeStyle:'contrast',origin:[0,1.38,-1.7],seedFrac:[.21,.34,.27],seed:mid(),safeRadius:0,seedRadius:1,selected:null,dirty:true,anchor:0,menu:false,menuRow:0,sliceAuto:false,followCenter:[0,0,0],instances:[],sceneCount:0,fadeEnd:6};
 const player={x:0,y:0,z:0,yaw:0,pitch:0,speed:1.15};
 let session=null,ref=null,lastFrame=0,trackHead=null,trackFrame=null,keys=new Set(),pressed=new Map(),menuPose=mid(),drag=false,dragLast=null,grab=null,nearSelected=-1,texLoaded=false,toastTime=0;
 wire(); // Populate controls before compiling WebGL shaders.
@@ -71,7 +71,7 @@ uniform int uTextured,uFadeStyle,uIsFill;uniform float uCoverageThreshold,uPerio
 out vec4 outColor;
 float bayer(vec2 p){ivec2 q=ivec2(mod(floor(p),4.));int i=q.x+4*q.y;float b[16]=float[16](0.,8.,2.,10.,12.,4.,14.,6.,3.,11.,1.,9.,15.,7.,13.,5.);return (b[i]+.5)/16.;}
 void main(){vec4 tex=uIsFill==1?texture(uVolume,(vPos-uOrigin)/uPeriod):uTextured==1?texture(uTex,vUV):vec4(1.);
-if(uIsFill==1 && tex.a<uCoverageThreshold)discard;
+// Sheet material uses baked, group-symmetrized Kenney RGBA, including transparency.
 if(tex.a<.02)discard;
 float fade=vFade;
 if(uFadeStyle==2)fade=fade>.5?1.:0.;
@@ -80,7 +80,7 @@ if(uFadeStyle==0 && fade<.999 && fade<bayer(gl_FragCoord.xy))discard;
 float lighting=.74+.26*abs(dot(normalize(vNormal),normalize(uLight)));
 vec3 color=tex.rgb*vTint*lighting;
 if(uFadeStyle==3)color=mix(vec3(.018,.039,.066),color,fade);
-outColor=vec4(color,uFadeStyle==1?fade:1.);
+outColor=vec4(color,uIsFill==1?tex.a*uCoverageThreshold*fade:(uFadeStyle==1?fade:1.));
 }`;
 const planeVS=`#version 300 es
 precision highp float;
@@ -89,19 +89,52 @@ uniform mat4 uVP,uPlane;
 out vec3 vPos;
 void main(){vec4 wp=uPlane*vec4(aXY,0.,1.);vPos=wp.xyz;gl_Position=uVP*wp;}`;
 const planeFS=`#version 300 es
-precision highp float;
-precision highp sampler3D;
+precision highp float;precision highp sampler3D;
 in vec3 vPos;uniform sampler3D uVolume;uniform vec3 uOrigin;uniform float uPeriod,uCoverageThreshold;
 out vec4 outColor;
-void main(){vec4 f=texture(uVolume,(vPos-uOrigin)/uPeriod);if(f.a<uCoverageThreshold)discard;outColor=vec4(f.rgb,1.);}`;
+void main(){
+ // This is a single fully opaque section through a SOLID RGB volume. Alpha is
+ // auxiliary morphology and must not erase the material's quieter interior.
+ vec3 f=texture(uVolume,(vPos-uOrigin)/uPeriod).rgb;
+ float contrast=mix(.65,1.65,uCoverageThreshold);
+ outColor=vec4(clamp((f-.5)*contrast+.5,0.,1.),1.);
+}`;
+const floorVS=`#version 300 es
+precision highp float;layout(location=0) in vec2 aXY;
+uniform mat4 uVP,uModel;out vec3 vPos;
+void main(){vec4 p=uModel*vec4(aXY,0.,1.);vPos=p.xyz;gl_Position=uVP*p;}`;
+const floorFS=`#version 300 es
+precision highp float;in vec3 vPos;uniform vec3 uCenter;uniform float uNear,uFar;out vec4 outColor;
+void main(){float d=length(vPos.xz-uCenter.xz);if(d>uFar)discard;float t=smoothstep(uNear,uFar,d);
+ vec3 nearColor=vec3(.105,.119,.132);vec3 sky=vec3(.018,.039,.066);
+ outColor=vec4(mix(nearColor,sky,t),1.);}`;
+const exteriorVS=`#version 300 es
+precision highp float;layout(location=0) in vec3 aPos;
+uniform mat4 uVP,uBox;out vec3 vWorld;
+void main(){vec4 w=uBox*vec4(aPos,1.);vWorld=w.xyz;gl_Position=uVP*w;}`;
+const exteriorFS=`#version 300 es
+precision highp float;precision highp sampler3D;
+in vec3 vWorld;uniform sampler3D uVolume;uniform vec3 uOrigin,uEye;uniform float uPeriod,uThreshold;uniform mat4 uVP;
+out vec4 outColor;
+void main(){
+ // The *whole solid block exterior* is displayed, not a sparse isodensity cloud.
+ vec3 f=(vWorld-uOrigin)/uPeriod;
+ vec3 color=texture(uVolume,f).rgb;
+ // Surface-facing light variation, without reading the voxel density as an isosurface.
+ vec3 n=normalize(cross(dFdx(vWorld),dFdy(vWorld)));
+ float light=.73+.27*abs(dot(n,normalize(vec3(.4,.85,.36))));
+ outColor=vec4(clamp((color-.5)*mix(.65,1.65,uThreshold)+.5,0.,1.)*light,1.);
+}`;
 const uiVS=`#version 300 es
 precision highp float;layout(location=0) in vec2 aXY;uniform mat4 uVP,uModel;out vec2 vUV;void main(){vUV=aXY*.5+.5;gl_Position=uVP*uModel*vec4(aXY,0.,1.);}`;
 const uiFS=`#version 300 es
 precision mediump float;in vec2 vUV;uniform sampler2D uTex;out vec4 outColor;void main(){outColor=texture(uTex,vec2(vUV.x,1.-vUV.y));}`;
-const meshShader=compile(VS,FS),sliceShader=compile(planeVS,planeFS),uiShader=compile(uiVS,uiFS),un=(p,n)=>gl.getUniformLocation(p,n);
+const meshShader=compile(VS,FS),sliceShader=compile(planeVS,planeFS),floorShader=compile(floorVS,floorFS),exteriorShader=compile(exteriorVS,exteriorFS),uiShader=compile(uiVS,uiFS),un=(p,n)=>gl.getUniformLocation(p,n);
 const mU={vp:un(meshShader,'uVP'),seed:un(meshShader,'uSeed'),viewer:un(meshShader,'uViewerCell'),origin:un(meshShader,'uOrigin'),period:un(meshShader,'uPeriod'),s0:un(meshShader,'uFadeStart'),s1:un(meshShader,'uFadeEnd'),txt:un(meshShader,'uTextured'),mode:un(meshShader,'uFadeStyle'),fill:un(meshShader,'uIsFill'),motif:un(meshShader,'uIsMotif'),cover:un(meshShader,'uCoverageThreshold'),tex:un(meshShader,'uTex'),volume:un(meshShader,'uVolume'),light:un(meshShader,'uLight')};
 const sU={vp:un(sliceShader,'uVP'),plane:un(sliceShader,'uPlane'),origin:un(sliceShader,'uOrigin'),period:un(sliceShader,'uPeriod'),cover:un(sliceShader,'uCoverageThreshold'),volume:un(sliceShader,'uVolume')};
 const uiU={vp:un(uiShader,'uVP'),model:un(uiShader,'uModel'),tex:un(uiShader,'uTex')};
+const fU={vp:un(floorShader,'uVP'),model:un(floorShader,'uModel'),center:un(floorShader,'uCenter'),near:un(floorShader,'uNear'),far:un(floorShader,'uFar')};
+const eU={vp:un(exteriorShader,'uVP'),box:un(exteriorShader,'uBox'),volume:un(exteriorShader,'uVolume'),origin:un(exteriorShader,'uOrigin'),eye:un(exteriorShader,'uEye'),period:un(exteriorShader,'uPeriod'),threshold:un(exteriorShader,'uThreshold')};
 function mesh(geom){const vao=gl.createVertexArray();gl.bindVertexArray(vao);const vert=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vert);gl.bufferData(gl.ARRAY_BUFFER,geom.v,gl.STATIC_DRAW);for(let i=0;i<3;i++){gl.enableVertexAttribArray(i);gl.vertexAttribPointer(i,i===2?2:3,gl.FLOAT,false,32,i===0?0:i===1?12:24);}
 const ib=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,geom.i,gl.STATIC_DRAW);
 const instance=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,instance);gl.bufferData(gl.ARRAY_BUFFER,88,gl.DYNAMIC_DRAW);
@@ -116,7 +149,7 @@ face([0,1,0],[[-.5,.5,.5],[.5,.5,.5],[.5,.5,-.5],[-.5,.5,-.5]]);
 face([0,-1,0],[[-.5,-.5,-.5],[.5,-.5,-.5],[.5,-.5,.5],[-.5,-.5,.5]]);
 return {v:new Float32Array(v),i:new Uint16Array(idx)};}
 function panelGeom(){const v=[],idx=[0,1,2,0,2,3];for(const [x,y,u,w] of [[-.5,-.5,0,0],[.5,-.5,1,0],[.5,.5,1,1],[-.5,.5,0,1]])v.push(x,y,0,0,0,1,u,w);return {v:new Float32Array(v),i:new Uint16Array(idx)};}
-let rods=mesh(boxGeom()),panels=mesh(panelGeom()),motifs={},demoMeshes={},texture={},patternPixels={},loading=true;let volumeTexture=null,volumeDirty=true,volumeThreshold=.5,sheetSeed=mid(),floorMesh=null,floorSource='none',fixedSectionPose=null;
+let rods=mesh(boxGeom()),panels=mesh(panelGeom()),exteriorMesh=mesh(boxGeom()),motifs={},demoMeshes={},texture={},patternPixels={},loading=true;let volumeTexture=null,sheetTexture=null,volumeDirty=true,sheetDirty=true,volumeThreshold=.55,floorSource='headset floor reference',fixedSectionPose=null;let sheetRecordsSorted=[];const solidVolumes={};
 function upload(obj,arr){obj.records=arr;obj.instances=arr.length;const v=new Float32Array(arr.length*22);let i=0;for(const d of arr){v.set(d.m,i);i+=16;v.set(d.tint,i);i+=3;v.set(d.cell,i);i+=3;}gl.bindBuffer(gl.ARRAY_BUFFER,obj.instance);gl.bufferData(gl.ARRAY_BUFFER,v,gl.DYNAMIC_DRAW);}
 function makeTex(img){const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,img);gl.generateMipmap(gl.TEXTURE_2D);return t;}
 // Embedded binary assets make file:/// desktop testing work without a local server.
@@ -130,47 +163,69 @@ async function loadBinary(file){if(location.protocol==='file:'){const data=embed
 function loadImg(file,k){return new Promise((resolve,reject)=>{const im=new Image();im.onload=()=>{if(k){const can=document.createElement('canvas');can.width=im.naturalWidth;can.height=im.naturalHeight;const cx=can.getContext('2d',{willReadFrequently:true});cx.drawImage(im,0,0);patternPixels[k]={data:cx.getImageData(0,0,can.width,can.height).data,width:can.width,height:can.height};}resolve(makeTex(im));};im.onerror=()=>{if(!im.dataset.embeddedRetry && EMBEDDED[file]){im.dataset.embeddedRetry='1';im.src='data:image/png;base64,'+EMBEDDED[file];return;}reject(Error('Missing '+file));};im.src=(location.protocol==='file:'||!navigator.onLine)&&EMBEDDED[file]?'data:image/png;base64,'+EMBEDDED[file]:file;});}
 async function loadAssets(){const paths=['target','tree','archer'];for(const name of paths){const data=await loadBinary(`assets/${name}.mesh`),dv=new DataView(data),n=dv.getUint32(0,true),count=dv.getUint32(4,true);const v=new Float32Array(data.slice(8,8+n*32)),i=new Uint16Array(data.slice(8+n*32,8+n*32+count*2));motifs[name]=mesh({v,i});demoMeshes[name]=mesh({v,i});upload(demoMeshes[name],[rec(mid(),[1.1,.92,.55],[0,0,0])]);motifs[name].radius=Math.max(...Array.from({length:n},(_,k)=>Math.hypot(v[k*8],v[k*8+1],v[k*8+2])));}
 texture.forest=await loadImg('assets/forest_colormap.png');for(const type of ['opaque','line'])for(let i=0;i<5;i++)texture[type+i]=await loadImg(`assets/${type}_${(type==='opaque'?[7,12,16,23,27]:[2,7,12,18,25])[i].toString().padStart(2,'0')}.png`,type+i);
-loading=false;changeGroup(state.group);syncUI();notify('Ready · symmetry specimen loaded');}
-// CPU-baked, group-invariant 3D field: canonicalize each voxel through the entire finite
-// operation set. Sampling this SAME volume on cell-filling sheets and on a free section
-// plane keeps the texture and all geometric sheets in the chosen space-group orbit.
-const VOL_N=48,volumeHist=new Uint32Array(256);
-function rebuildVolume(){if(loading||!volumeDirty)return;
- const source=patternPixels[state.family+state.pattern];if(!source)return;
- const N=VOL_N,group=GROUPS[state.group],ops=group.ops;
- const data=new Uint8Array(N*N*N*4);volumeHist.fill(0);
- let ptr=0;
- for(let z=0;z<N;z++){const pz=(z+.5)/N;
-  for(let y=0;y<N;y++){const py=(y+.5)/N;
-   for(let x=0;x<N;x++){const px=(x+.5)/N;
-    let bx=2,by=2,bz=2;
-    for(let k=0;k<ops.length;k++){
-      const o=ops[k],r=o.r,t=o.t;
-      const X=mod(r[0]*px+r[1]*py+r[2]*pz+t[0]),Y=mod(r[3]*px+r[4]*py+r[5]*pz+t[1]),Z=mod(r[6]*px+r[7]*py+r[8]*pz+t[2]);
-      if(X<bx-1e-7||(Math.abs(X-bx)<1e-7&&(Y<by-1e-7||(Math.abs(Y-by)<1e-7&&Z<bz)))){bx=X;by=Y;bz=Z;}
-    }
-    // The source is an ordinary two-dimensional Kenney texture, extended to 3D
-    // before canonical folding. Brightness (or original line alpha) controls coverage.
-    const u=mod(2.1*bx+.46*by),v=mod(2.3*bz+.39*by),sx=Math.min(source.width-1,Math.floor(u*source.width)),sy=Math.min(source.height-1,Math.floor(v*source.height));
-    const q=4*(sy*source.width+sx),r=source.data[q],g=source.data[q+1],b=source.data[q+2],a=source.data[q+3];
-    const brightness=state.family==='line'?a:Math.round(.2126*r+.7152*g+.0722*b);
-    data[ptr++]=r;data[ptr++]=g;data[ptr++]=b;data[ptr++]=brightness;
-    volumeHist[brightness]++;
-   }
-  }
+// Keep all solid fields available for immediate menu switching, including file:// usage.
+for(const kind of ['oak','walnut','strata']){
+ const raw=new Uint8Array(await loadBinary('assets/volume_'+kind+'.rgba'));
+ if(raw.length!==VOL_N**3*4)throw Error('Invalid '+kind+' solid volume: '+raw.length+' bytes');
+ solidVolumes[kind]=raw;
+}
+loading=false;changeGroup(state.group);syncUI();notify('Ready · solid textures available');}
+// Independent data paths: a symmetrized Kenney RGBA wall material, and a genuine 3D density field.
+// Both are invariant under the selected finite point/screw operation group on the voxel grid.
+const VOL_N=64,SHEET_N=48,volumeHist=new Uint32Array(256);
+function upload3D(existing,data,N=VOL_N){const tex=existing||gl.createTexture();gl.bindTexture(gl.TEXTURE_3D,tex);
+ gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+ gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+ for(const axis of [gl.TEXTURE_WRAP_S,gl.TEXTURE_WRAP_T,gl.TEXTURE_WRAP_R])gl.texParameteri(gl.TEXTURE_3D,axis,gl.REPEAT);
+ gl.texImage3D(gl.TEXTURE_3D,0,gl.RGBA8,N,N,N,0,gl.RGBA,gl.UNSIGNED_BYTE,data);return tex;}
+function canonicalPoint(x,y,z,ops){let bx=2,by=2,bz=2;
+ for(const o of ops){const r=o.r,t=o.t;
+ const X=mod(r[0]*x+r[1]*y+r[2]*z+t[0]),Y=mod(r[3]*x+r[4]*y+r[5]*z+t[1]),Z=mod(r[6]*x+r[7]*y+r[8]*z+t[2]);
+ if(X<bx-1e-7||(Math.abs(X-bx)<1e-7&&(Y<by-1e-7||(Math.abs(Y-by)<1e-7&&Z<bz)))){bx=X;by=Y;bz=Z;}}
+ return [bx,by,bz];}
+// Sample a whole 3D colored solid generated offline from editable, reproducible
+// mathematical grain/lamination models. The Blender shader graphs were not baked;
+// these are adaptations and are labeled as such in the UI and README.
+// A canonical representative of each crystal-group orbit is used at voxel centers.
+// With N divisible by 4, signed permutations and P4_1 quarter-period translations
+// map voxel centers to voxel centers, ensuring exact group symmetry on this grid.
+const canonicalCache=new Map();
+function canonicalMap(g){
+ if(canonicalCache.has(g))return canonicalCache.get(g);
+ const N=VOL_N,ops=GROUPS[g].ops,map=new Uint32Array(N*N*N);
+ for(let z=0;z<N;z++)for(let y=0;y<N;y++)for(let x=0;x<N;x++){
+  const f=canonicalPoint((x+.5)/N,(y+.5)/N,(z+.5)/N,ops);
+  const cx=clamp(Math.floor(f[0]*N),0,N-1),cy=clamp(Math.floor(f[1]*N),0,N-1),cz=clamp(Math.floor(f[2]*N),0,N-1);
+  map[x+N*(y+N*z)]=cx+N*(cy+N*cz);
  }
- if(!volumeTexture)volumeTexture=gl.createTexture();gl.bindTexture(gl.TEXTURE_3D,volumeTexture);
- gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
- gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_WRAP_T,gl.REPEAT);gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_WRAP_R,gl.REPEAT);
- gl.texImage3D(gl.TEXTURE_3D,0,gl.RGBA8,N,N,N,0,gl.RGBA,gl.UNSIGNED_BYTE,data);
- volumeDirty=false;updateCoverageThreshold();
+ canonicalCache.set(g,map);return map;
 }
-function updateCoverageThreshold(){const total=VOL_N**3,target=Math.floor(total*(1-state.coverage));let acc=0,threshold=0;
- for(let k=0;k<256;k++){acc+=volumeHist[k];if(acc>=target){threshold=k;break;}}
- volumeThreshold=state.coverage>=.995?0:threshold/255;
+function rebuildVolume(){if(loading)return;
+ const N=VOL_N,ops=GROUPS[state.group].ops;
+ if(sheetDirty&&state.representation==='sheet'){const source=patternPixels[state.family+state.pattern];if(source){const S=SHEET_N,pixels=new Uint8Array(S*S*S*4);let idx=0;
+  for(let z=0;z<S;z++)for(let y=0;y<S;y++)for(let x=0;x<S;x++){
+   const [bx,by,bz]=canonicalPoint((x+.5)/S,(y+.5)/S,(z+.5)/S,ops);
+   const u=mod(bx+.17*by+.07*bz),v=mod(.13*bx+by+.31*bz);
+   const xx=Math.min(source.width-1,Math.floor(u*source.width)),yy=Math.min(source.height-1,Math.floor(v*source.height));
+   const q=4*(yy*source.width+xx);pixels[idx++]=source.data[q];pixels[idx++]=source.data[q+1];pixels[idx++]=source.data[q+2];pixels[idx++]=source.data[q+3];
+  }
+  sheetTexture=upload3D(sheetTexture,pixels,S);sheetDirty=false;
+ }}
+ if(!volumeDirty||state.representation!=='slice')return;
+ const source=solidVolumes[state.volume];
+ if(!source)throw Error('Missing solid texture '+state.volume);
+ const vox=new Uint8Array(source.length),map=canonicalMap(state.group);
+ volumeHist.fill(0);
+ for(let i=0;i<map.length;i++){
+  const a=i*4,b=map[i]*4;
+  vox[a]=source[b];vox[a+1]=source[b+1];vox[a+2]=source[b+2];vox[a+3]=source[b+3];
+  volumeHist[vox[a+3]]++;
+ }
+ volumeTexture=upload3D(volumeTexture,vox);volumeDirty=false;updateCoverageThreshold();
 }
+function updateCoverageThreshold(){volumeThreshold=state.coverage;}
 function rec(m,tint,cell,extra={}){return {m,tint,cell,...extra};}
-function changeGroup(i){state.group=(i+GROUPS.length)%GROUPS.length;volumeDirty=true;state.seedFrac=[.21,.34,.27];resetSeed();state.dirty=true;syncUI();notify(GROUPS[state.group].symbol+' · '+GROUPS[state.group].desc);}
+function changeGroup(i){state.group=(i+GROUPS.length)%GROUPS.length;volumeDirty=true;sheetDirty=true;if(state.quality==='safe'||state.quality==='balanced'){const r=(state.group===7?4:state.group===6?5:6)+(state.quality==='balanced'?1:0);state.radius=r;state.fadeStart=Math.max(0,r-2);}state.seedFrac=[.21,.34,.27];resetSeed();state.dirty=true;syncUI();notify(GROUPS[state.group].symbol+' · '+GROUPS[state.group].desc);}
 function initialPose(){const p=state.period,o=state.origin;return mt(o[0]+p*state.seedFrac[0],o[1]+p*state.seedFrac[1],o[2]+p*state.seedFrac[2]);}
 function safeSize(){const ops=GROUPS[state.group].ops,p=state.seedFrac;const centers=[];for(const o of ops)for(let x=-1;x<=1;x++)for(let y=-1;y<=1;y++)for(let z=-1;z<=1;z++){const v=rV(o.r,p);centers.push([v[0]+o.t[0]+x,v[1]+o.t[1]+y,v[2]+o.t[2]+z]);}let min=Infinity;for(const q of centers){const d=len(sub(q,p));if(d>1e-5)min=Math.min(min,d);}return min;}
 function defaultSize(){const rad=state.motif==='archer'?motifs.archer?.radius:state.motif==='tree'?motifs.tree?.radius:state.motif==='target'?motifs.target?.radius:Math.SQRT1_2;
@@ -180,8 +235,12 @@ function resetAll(){player.x=0;player.y=0;player.z=0;player.yaw=0;player.pitch=0
 function cellOp(c,o){const L=state.period,center=state.origin,v=[L*(c[0]+o.t[0]),L*(c[1]+o.t[1]),L*(c[2]+o.t[2])],ro=rV(o.r,center);return affine(o.r,add(v,sub(center,ro)));}
 function regen(){if(loading)return;state.dirty=false;
 const motifRecords=[],sheetRecords=[],rodRecords=[],group=GROUPS[state.group],L=state.period,R=state.radius;
- sheetSeed=mm(mt(...state.origin),mm(rx(-PI/2),ms(L,L,1)));
- if(state.representation!=='motif')rebuildVolume();
+ const [ox,oy,oz]=state.origin;
+ const faceSeeds=[mm(mt(ox+L*.5,oy+L*.5,oz),ms(L,L,1)),
+  mm(mt(ox+L*.5,oy,oz+L*.5),mm(rx(-PI/2),ms(L,L,1))),
+  mm(mt(ox,oy+L*.5,oz+L*.5),mm(ry(PI/2),ms(L,L,1)))];
+ if(state.representation==='sheet'&&sheetDirty)rebuildVolume();
+ if(state.representation==='slice'&&volumeDirty)rebuildVolume();
 const poolCenter=state.fadeViewer&&trackHead?trackHead.slice(12,15).map((v,i)=>Math.floor((v-state.origin[i])/L)):[0,0,0];state.followCenter=poolCenter;
 // Viewer-centered fade gets a one-cell invisible halo. Specimen-centered mode has no halo.
 // Never secretly shrink the requested crop for a high-order group.
@@ -194,66 +253,95 @@ for(const {c,tax} of cells){
   const o=group.ops[k],g=cellOp(c,o);
   if(state.representation==='motif'){motifRecords.push(rec(g,[1,1,1],c,{opIndex:k,op:o}));}
   if(state.representation==='sheet'){
-    const model=mm(g,sheetSeed),center=point(model,[0,0,0]);
-    // Each square is a full tile. Collapse coincident faces generated by stabilizer operations.
-    const nv=norm([model[8],model[9],model[10]]).map(Math.abs);
-    const key=[...center,...nv].map(v=>Math.round(v/Math.max(.00001,L)*1000)).join(',');
-    if(!seenSheets.has(key)){seenSheets.add(key);sheetRecords.push(rec(g,[1,1,1],c));}
+   for(const face of faceSeeds){const model=mm(g,face);
+    const corners=[[-.5,-.5,0],[.5,-.5,0],[.5,.5,0],[-.5,.5,0]]
+     .map(p=>point(model,p).map((v,i)=>Math.round((v-state.origin[i])/L*1000)).join(','));
+    corners.sort();const faceKey=corners.join('|');
+    if(!seenSheets.has(faceKey)){seenSheets.add(faceKey);sheetRecords.push(rec(model,[1,1,1],c));}
+   }
   }
  }
 }
 state.instances=motifRecords;state.effectiveRadius=R;state.sceneCount=state.representation==='motif'?motifRecords.length:state.representation==='sheet'?sheetRecords.length:0;
 for(const m of Object.values(motifs))upload(m,motifRecords);
-upload(panels,sheetRecords);upload(rods,rodRecords);
+sheetRecordsSorted=sheetRecords;lastSheetEye=null;upload(panels,sheetRecords);upload(rods,rodRecords);
 syncStats();}
-function syncStats(){const g=GROUPS[state.group];$('status').textContent=`${g.symbol} · #${g.id} · ${g.ops.length} operations\n${state.sceneCount.toLocaleString()} loaded instances · ${Math.round(state.period*100)} cm periods\n${state.safety?'Safe initial placement':'Free initial placement'} · ${state.representation==='slice'?'3D invariant field slice':state.representation==='sheet'?'Full-cell textured sheets':'3D motif orbit'}${state.sceneCount>20000?'\nHigh instance count: reduce radius if Quest performance drops':''}`;}
-function syncUI(){for(const [id,value] of Object.entries({group:state.group,motif:state.motif,representation:state.representation,family:state.family,pattern:state.pattern,coverage:state.coverage*100,period:state.period,radius:state.radius,fadeStart:state.fadeStart,occupancy:state.occupancy*100,sectionY:state.sectionY,fadeStyle:state.fadeStyle}))$(id).value=String(value);
-for(const k of ['safety','fadeViewer','grid','ground','animate','sliceFollow'])$(k).checked=state[k];
-$('periodValue').textContent=state.period.toFixed(2)+' m';$('radiusValue').textContent=state.radius+' periods';$('fadeStartValue').textContent=state.fadeStart+' periods';$('occupancyValue').textContent=Math.round(state.occupancy*100)+'% of cell';$('sectionYValue').textContent=state.sectionY.toFixed(2)+' m';$('coverageValue').textContent=Math.round(state.coverage*100)+'%';
-$('motifRow').hidden=state.representation!=='motif';$('occupancyRow').hidden=state.representation!=='motif';$('familyRow').hidden=state.representation==='motif';$('textureRow').hidden=state.representation==='motif';$('coverageRow').hidden=state.representation==='motif';$('sliceDepthRow').hidden=state.representation!=='slice';
+function syncStats(){const g=GROUPS[state.group];$('status').textContent=`${g.symbol} · #${g.id} · ${g.ops.length} operations\n${state.sceneCount.toLocaleString()} loaded instances · ${Math.round(state.period*100)} cm periods\n${state.safety?'Safe initial placement':'Free initial placement'} · ${state.representation==='slice'?'Solid '+state.volume+' / section':state.representation==='sheet'?'Textured lattice walls':'3D motif orbit'}${state.sceneCount>20000?'\nHigh instance count: reduce radius if Quest performance drops':''}`;}
+function syncUI(){for(const [id,value] of Object.entries({group:state.group,motif:state.motif,volume:state.volume,representation:state.representation,family:state.family,pattern:state.pattern,coverage:state.coverage*100,period:state.period,radius:state.radius,fadeStart:state.fadeStart,occupancy:state.occupancy*100,sectionY:state.sectionY,fadeStyle:state.fadeStyle,quality:state.quality}))$(id).value=String(value);
+for(const k of ['safety','fadeViewer','grid','ground','animate','sliceFollow','exterior','scaleMotif'])$(k).checked=state[k];
+$('periodValue').textContent=state.period.toFixed(2)+' m';$('radiusValue').textContent=state.radius+' periods';$('fadeStartValue').textContent=state.fadeStart+' periods';$('occupancyValue').textContent=Math.round(state.occupancy*100)+'% of cell';$('sectionYValue').textContent=state.sectionY.toFixed(2)+' m';$('coverageValue').textContent=Math.round(state.coverage*100)+'%';$('coverageLabel').textContent=state.representation==='sheet'?'Wall opacity':'Section / exterior contrast';
+$('volumeRow').hidden=state.representation!=='slice';$('motifRow').hidden=state.representation!=='motif';$('occupancyRow').hidden=state.representation!=='motif';$('familyRow').hidden=state.representation!=='sheet';$('textureRow').hidden=state.representation!=='sheet';$('coverageRow').hidden=state.representation==='motif';$('sliceDepthRow').hidden=state.representation!=='slice';$('exteriorRow').hidden=state.representation!=='slice';$('animateRow').hidden=state.representation!=='motif';$('scaleMotifRow').hidden=state.representation!=='motif';$('sliceFollowRow').hidden=state.representation!=='slice';
 syncStats();}
 function setVal(k,v){if(k==='group'){changeGroup(+v);return;}
+ if(k==='period'){
+  const old=state.period,head=trackHead||mt(player.x,player.y+1.64,player.z);
+  const pivot=[head[12],head[13],head[14]],ratio=v/old;
+  const originOld=state.origin.slice(),seedOld=state.seed.slice(12,15);
+  state.origin=pivot.map((x,i)=>x-(pivot[i]-originOld[i])*ratio);
+  const newSeed=seedOld.map((x,i)=>state.origin[i]+(x-originOld[i])*ratio);
+  for(let i=0;i<3;i++){if(state.scaleMotif)for(let j=0;j<3;j++)state.seed[j*4+i]*=ratio;state.seed[12+i]=newSeed[i];}
+  state.period=v;state.dirty=true;syncUI();return;
+ }
+ if(k==='representation'&&v!=='motif')state.animate=false;
+ if(k==='representation'){state.coverage=v==='slice'?state.densityCoverage:state.sheetOpacity;fixedSectionPose=null;}
+ if(k==='quality'){state.quality=v;
+  const safe=state.group===7?4:state.group===6?5:6;
+  const rad=v==='safe'?safe:v==='balanced'?Math.min(7,safe+1):8;
+  state.radius=rad;state.fadeStart=Math.max(0,rad-2);state.dirty=true;syncUI();return;}
 state[k]=v;
-if(k==='motif'||k==='occupancy'||k==='safety'||k==='period')if(!grab)resetSeed();
+if(k==='motif'||k==='occupancy'||k==='safety')if(!grab)resetSeed();
 if(k==='representation'&&state.representation==='slice')fixedSectionPose=null;
 if(k==='sliceFollow'&&!v)fixedSectionPose=null;
-if(['group','family','pattern'].includes(k)){volumeDirty=true;}
+if(k==='sliceFollow'&&v)fixedSectionPose=null;
+if(['family','pattern'].includes(k)){sheetDirty=true;}if(k==='volume'){volumeDirty=true;notify('Solid texture · '+v);}
 // The baked volume is expressed in fractional coordinates and independent of cell period.
-if(k==='radius'&&state.fadeStart>=state.radius)state.fadeStart=Math.max(0,state.radius-1);
-if(k==='fadeStart')state.fadeStart=Math.min(v,state.radius-1);
-if(k==='coverage'&&!volumeDirty)updateCoverageThreshold();
-if(['period','radius','motif','grid','fadeViewer','representation','family','pattern','coverage'].includes(k))state.dirty=true;
+if(k==='radius'){state.quality='custom';if(state.fadeStart>state.radius)state.fadeStart=state.radius;}
+if(k==='fadeStart')state.fadeStart=Math.min(v,state.radius);
+if(k==='coverage'){if(state.representation==='sheet')state.sheetOpacity=v;else if(state.representation==='slice')state.densityCoverage=v;updateCoverageThreshold();}
+if(['period','radius','motif','grid','fadeViewer','representation','family','pattern','volume','coverage'].includes(k))state.dirty=true;
 syncUI();}
 const quad=gl.createVertexArray();gl.bindVertexArray(quad);const vq=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vq);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,1,1,-1,-1,1,1,-1,1]),gl.STATIC_DRAW);gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);gl.bindVertexArray(null);
 const menuCanvas=document.createElement('canvas');menuCanvas.width=1200;menuCanvas.height=1520;const ctx=menuCanvas.getContext('2d');const menuTexture=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,menuTexture);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-const MENU=['Group','Representation','3D motif','Pattern pack','Pattern variant','Cell size','Crop radius','Full opacity through','Motif occupancy','Fade mode','Viewer-centered fade','Lattice guides','Physical room floor','Safe starting size','Slice follows headset','Slice distance','Generator demonstration','Reference anchor','Close menu'];
+const MENU=['Group','Representation','3D motif / solid material','Pattern pack','Pattern variant','Performance preset','Cell size','Crop radius','Full opacity through','Motif size','Sheet opacity / section contrast','Fade mode','Viewer-centered fade','Lattice guides','Floor comfort surface','Safe starting size','Scale motif with cell','Slice follows headset','Slice distance','Show solid exterior','Generator demonstration','Reference anchor','Close menu'];
 const ANCHORS=[['volume center',[.5,.5,.5]],['face center',[.5,.5,0]],['cell corner',[0,0,0]],['edge midpoint',[.5,0,0]]];
-function menuValue(k){switch(k){case 0:return GROUPS[state.group].symbol;case 1:return state.representation;case 2:return state.motif;case 3:return state.family;case 4:return String(state.pattern+1);case 5:return Math.round(state.period*100)+' cm';case 6:return state.radius+' cells';case 7:return state.fadeStart+' cells';case 8:return Math.round(state.occupancy*100)+'%';case 9:return state.fadeStyle;case 10:return state.fadeViewer?'ON':'OFF';case 11:return state.grid?'ON':'OFF';case 12:return state.ground?'ON':'OFF';case 13:return state.safety?'ON':'OFF';case 14:return state.sliceFollow?'ON':'OFF';case 15:return state.sectionY.toFixed(2)+' m';case 16:return state.animate?'ON':'OFF';case 17:return ANCHORS[state.anchor][0];default:return '';}}
-function drawMenu(){ctx.clearRect(0,0,1200,1520);ctx.fillStyle='rgba(7,21,33,.96)';ctx.fillRect(0,0,1200,1520);ctx.strokeStyle='#528d9f';ctx.lineWidth=6;ctx.strokeRect(8,8,1184,1504);ctx.fillStyle='#85ebdf';ctx.font='bold 63px system-ui';ctx.fillText('SPACEGROUP ATLAS',58,110);ctx.fillStyle='#d4e5f4';ctx.font='35px system-ui';ctx.fillText('Room-scale symmetry lab  ·  0.3.1',60,166);
-MENU.forEach((title,i)=>{const y=234+i*63;ctx.fillStyle=i===state.menuRow?'rgba(55,154,165,.40)':'rgba(0,0,0,0)';ctx.fillRect(35,y-45,1130,56);ctx.fillStyle='#d7e8f8';ctx.font=i===state.menuRow?'bold 34px system-ui':'32px system-ui';ctx.fillText(title,63,y);ctx.fillStyle='#88ecdb';ctx.textAlign='right';ctx.fillText(menuValue(i),1123,y);ctx.textAlign='left';});ctx.font='30px system-ui';ctx.fillStyle='#aacbd4';ctx.fillText('Right stick: navigate / adjust    A: select    B: close',57,1480);
+function menuValue(k){switch(k){case 0:return GROUPS[state.group].symbol;case 1:return state.representation;case 2:return state.representation==='slice'?state.volume:state.motif;
+case 3:return state.family;case 4:return String(state.pattern+1);case 5:return state.quality;case 6:return Math.round(state.period*100)+' cm';
+case 7:return state.radius+' cells';case 8:return state.fadeStart+' cells';case 9:return Math.round(state.occupancy*100)+'%';
+case 10:return Math.round(state.coverage*100)+'%';case 11:return state.fadeStyle;case 12:return state.fadeViewer?'ON':'OFF';
+case 13:return state.grid?'ON':'OFF';case 14:return state.ground?'ON':'OFF';case 15:return state.safety?'ON':'OFF';
+case 16:return state.scaleMotif?'ON':'OFF';case 17:return state.sliceFollow?'ON':'OFF';case 18:return state.sectionY.toFixed(2)+' m';
+case 19:return state.exterior?'ON':'OFF';case 20:return state.animate&&state.representation==='motif'?'ON':'OFF';
+case 21:return ANCHORS[state.anchor][0];default:return '';}}
+function drawMenu(){ctx.clearRect(0,0,1200,1520);ctx.fillStyle='rgba(7,21,33,.96)';ctx.fillRect(0,0,1200,1520);ctx.strokeStyle='#528d9f';ctx.lineWidth=6;ctx.strokeRect(8,8,1184,1504);ctx.fillStyle='#85ebdf';ctx.font='bold 63px system-ui';ctx.fillText('SPACEGROUP ATLAS',58,110);ctx.fillStyle='#d4e5f4';ctx.font='35px system-ui';ctx.fillText('Room-scale symmetry lab  ·  0.5',60,166);
+MENU.forEach((title,i)=>{const y=222+i*52;ctx.fillStyle=i===state.menuRow?'rgba(55,154,165,.40)':'rgba(0,0,0,0)';ctx.fillRect(35,y-39,1130,48);ctx.fillStyle='#d7e8f8';ctx.font=i===state.menuRow?'bold 28px system-ui':'27px system-ui';ctx.fillText(title,63,y);ctx.fillStyle='#88ecdb';ctx.textAlign='right';ctx.fillText(menuValue(i),1123,y);ctx.textAlign='left';});ctx.font='30px system-ui';ctx.fillStyle='#aacbd4';ctx.fillText('Right stick: navigate / adjust    A: select    B: close',57,1480);
 gl.bindTexture(gl.TEXTURE_2D,menuTexture);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,menuCanvas);}
 function anchorFocus(){const [label,p]=ANCHORS[state.anchor];let target=[0,1.5,-1.45];if(trackHead){const dir=norm([-trackHead[8],0,-trackHead[10]]);target=[trackHead[12]+dir[0]*1.15,trackHead[13]-.15,trackHead[14]+dir[2]*1.15];}const desired=add(state.origin,scale(p,state.period));const d=sub(target,desired);state.origin=add(state.origin,d);state.seed=mm(mt(...d),state.seed);state.dirty=true;notify('Focus · '+label);}
-function menuChange(direction=1){const k=state.menuRow;const cycle=(key,list)=>setVal(key,list[(list.indexOf(state[key])+direction+list.length)%list.length]);
-switch(k){case 0:setVal('group',(state.group+direction+GROUPS.length)%GROUPS.length);break;
-case 1:cycle('representation',['motif','sheet','slice']);break;
-case 2:cycle('motif',['archer','target','tree']);break;
-case 3:cycle('family',['opaque','line']);break;
-case 4:setVal('pattern',(state.pattern+direction+5)%5);break;
-case 5:setVal('period',clamp(Math.round((state.period+direction*.05)*20)/20,.1,1.25));break;
-case 6:setVal('radius',clamp(state.radius+direction,2,8));break;
-case 7:setVal('fadeStart',clamp(state.fadeStart+direction,0,state.radius-1));break;
-case 8:setVal('occupancy',clamp((Math.round(state.occupancy*100)+direction*2)/100,.05,.35));break;
-case 9:cycle('fadeStyle',['contrast','off','dither','alpha','cut']);break;
-case 10:setVal('fadeViewer',!state.fadeViewer);break;
-case 11:setVal('grid',!state.grid);break;
-case 12:setVal('ground',!state.ground);break;
-case 13:setVal('safety',!state.safety);break;
-case 14:setVal('sliceFollow',!state.sliceFollow);break;
-case 15:setVal('sectionY',clamp(state.sectionY+direction*.10,.5,2.5));break;
-case 16:setVal('animate',!state.animate);break;
-case 17:state.anchor=(state.anchor+direction+4)%4;anchorFocus();break;
-case 18:state.menu=false;break;}
-drawMenu();}
+function menuChange(direction=1){const k=state.menuRow;const cycle=(name,list)=>setVal(name,list[(list.indexOf(state[name])+direction+list.length)%list.length]);
+ switch(k){
+ case 0:setVal('group',(state.group+direction+GROUPS.length)%GROUPS.length);break;
+ case 1:cycle('representation',['motif','sheet','slice']);break;
+ case 2:if(state.representation==='slice')cycle('volume',['oak','walnut','strata']);else cycle('motif',['archer','target','tree']);break;
+ case 3:cycle('family',['opaque','line']);break;
+ case 4:setVal('pattern',(state.pattern+direction+5)%5);break;
+ case 5:cycle('quality',['safe','balanced','extended','custom']);break;
+ case 6:setVal('period',clamp(Math.round((state.period+direction*.05)*20)/20,.1,2.5));break;
+ case 7:setVal('radius',clamp(state.radius+direction,2,8));break;
+ case 8:setVal('fadeStart',clamp(state.fadeStart+direction,0,state.radius));break;
+ case 9:setVal('occupancy',clamp((Math.round(state.occupancy*100)+direction*2)/100,.05,.35));break;
+ case 10:setVal('coverage',clamp(state.coverage+direction*.1,.1,1));break;
+ case 11:cycle('fadeStyle',['contrast','off','dither','alpha','cut']);break;
+ case 12:setVal('fadeViewer',!state.fadeViewer);break;
+ case 13:setVal('grid',!state.grid);break;
+ case 14:setVal('ground',!state.ground);break;
+ case 15:setVal('safety',!state.safety);break;
+ case 16:setVal('scaleMotif',!state.scaleMotif);break;
+ case 17:setVal('sliceFollow',!state.sliceFollow);break;
+ case 18:setVal('sectionY',clamp(state.sectionY+direction*.10,.25,3));break;
+ case 19:setVal('exterior',!state.exterior);break;
+ case 20:if(state.representation==='motif')setVal('animate',!state.animate);else notify('Generator animation is only in motif mode');break;
+ case 21:state.anchor=(state.anchor+direction+4)%4;anchorFocus();break;
+ case 22:state.menu=false;break;
+ }drawMenu();}
 function drawQuad(shader,vao,vp,model,tex){gl.useProgram(shader);gl.uniformMatrix4fv(uiU.vp,false,vp);gl.uniformMatrix4fv(uiU.model,false,model);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,tex);gl.uniform1i(uiU.tex,0);gl.bindVertexArray(vao);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.disable(gl.CULL_FACE);gl.disable(gl.DEPTH_TEST);gl.depthMask(false);gl.drawArrays(gl.TRIANGLES,0,6);gl.depthMask(true);gl.enable(gl.DEPTH_TEST);gl.disable(gl.BLEND);}
 function setupMaterial(vp,head,mode){gl.useProgram(meshShader);
  gl.uniformMatrix4fv(mU.vp,false,vp);gl.uniform3f(mU.light,-.47,.81,.33);
@@ -273,65 +361,74 @@ function drawOne(obj,seed,tex,textured,fill,motif){if(!obj?.instances)return;
  gl.bindVertexArray(obj.vao);
  gl.drawElementsInstanced(gl.TRIANGLES,obj.count,gl.UNSIGNED_SHORT,0,obj.instances);
 }
-function drawMeshes(vp,head){setupMaterial(vp,head);
+let lastSheetEye=null;
+function drawMeshes(vp,head){if(state.representation==='sheet'&&sheetRecordsSorted.length>1){
+ const needs=!lastSheetEye||len(sub(lastSheetEye,head))>.12;
+ if(needs){sheetRecordsSorted.sort((a,b)=>{const pa=[a.m[12],a.m[13],a.m[14]],pb=[b.m[12],b.m[13],b.m[14]];return len(sub(pb,head))-len(sub(pa,head));});upload(panels,sheetRecordsSorted);lastSheetEye=head.slice();}}
+ setupMaterial(vp,head);
  drawOne(rods,mid(),null,false,false,false);
  if(state.representation==='motif'){
   if(state.fadeStyle==='alpha'){gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.depthMask(false);}
   drawOne(motifs[state.motif],state.seed,texture.forest,true,false,true);
   if(state.fadeStyle==='alpha'){gl.depthMask(true);gl.disable(gl.BLEND);}
  }else if(state.representation==='sheet'){
-  if(volumeTexture)drawOne(panels,sheetSeed,null,false,true,true);
+  if(sheetTexture){
+   gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.depthMask(false);
+   gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_3D,sheetTexture);
+   gl.uniform1f(mU.cover,state.coverage);drawOne(panels,mid(),null,false,true,true);
+   gl.depthMask(true);gl.disable(gl.BLEND);
+  }
  }
  if(state.animate&&state.representation==='motif'&&!grab)drawGeneratorDemonstration(vp,head);
 }
 function drawGeneratorDemonstration(vp,head){
- const g=GROUPS[state.group],rot=g.gens.find(q=>Math.abs(detR(q.r)-1)<.001);
- if(!rot||!demoMeshes[state.motif]||!state.demoPose)return;
- // The original orbit remains stationary; only the teaching overlay moves.
- setupMaterial(vp,head,4);gl.uniform1i(mU.mode,4);
- drawOne(demoMeshes[state.motif],state.demoPose,texture.forest,true,false,false);
+ if(!state.demoTransforms||!demoMeshes[state.motif])return;
+ setupMaterial(vp,head,4);gl.enable(gl.POLYGON_OFFSET_FILL);gl.polygonOffset(-2,-2);
+ drawOne(demoMeshes[state.motif],mid(),texture.forest,true,false,false);
+ gl.disable(gl.POLYGON_OFFSET_FILL);
 }
 function drawSection(vp){if(state.representation!=='slice'||!volumeTexture)return;
  const head=trackHead||mid();
+ if(state.exterior){drawVolumeExterior(vp,head);return;}
  if(!state.sliceFollow&&!fixedSectionPose)fixedSectionPose=new Float32Array(head);
  const frame=state.sliceFollow?head:fixedSectionPose;
- const plane=mm(frame,mm(mt(0,0,-state.sectionY),ms(Math.max(1,state.period*state.radius*1.25),Math.max(1,state.period*state.radius*1.25),1)));
+ const size=clamp(state.period*2.2,.6,4.5);
+ const plane=mm(frame,mm(mt(0,0,-state.sectionY),ms(size,size,1)));
  gl.useProgram(sliceShader);gl.uniformMatrix4fv(sU.vp,false,vp);gl.uniformMatrix4fv(sU.plane,false,plane);
  gl.uniform3fv(sU.origin,state.origin);gl.uniform1f(sU.period,state.period);gl.uniform1f(sU.cover,volumeThreshold);
  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_3D,volumeTexture);gl.uniform1i(sU.volume,1);
  gl.bindVertexArray(quad);gl.disable(gl.CULL_FACE);gl.enable(gl.DEPTH_TEST);gl.depthMask(true);
  gl.drawArrays(gl.TRIANGLES,0,6);
 }
+function drawVolumeExterior(vp,head){
+ // One cell only: a modest, actual isosurface sampled by a GPU ray cast.
+ gl.useProgram(exteriorShader);
+ const L=state.period,base=state.origin;
+ const box=mm(mt(base[0]+.5*L,base[1]+.5*L,base[2]+.5*L),ms(L));
+ gl.uniformMatrix4fv(eU.vp,false,vp);gl.uniformMatrix4fv(eU.box,false,box);
+ gl.uniform3fv(eU.origin,base);gl.uniform3f(eU.eye,head[12],head[13],head[14]);
+ gl.uniform1f(eU.period,L);gl.uniform1f(eU.threshold,volumeThreshold);
+ gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_3D,volumeTexture);gl.uniform1i(eU.volume,1);
+ gl.disable(gl.BLEND);gl.enable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);
+ gl.bindVertexArray(exteriorMesh.vao);gl.drawElements(gl.TRIANGLES,exteriorMesh.count,gl.UNSIGNED_SHORT,0);
+ gl.disable(gl.CULL_FACE);
+}
 function detR(r){return r[0]*(r[4]*r[8]-r[5]*r[7])-r[1]*(r[3]*r[8]-r[5]*r[6])+r[2]*(r[3]*r[7]-r[4]*r[6]);}
-function floorGeometry(points){
- // The bounded-floor polygon is convex in simple setups, but can be concave.
- // Ear-clipping triangulates the full permitted area, with a neutral, low-contrast matte finish.
- const pts=points.length>=3?points:[[-4,-4],[4,-4],[4,4],[-4,4]];
- const cross=(a,b,c)=>(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
- let area=0;for(let i=0;i<pts.length;i++){const a=pts[i],b=pts[(i+1)%pts.length];area+=a[0]*b[1]-b[0]*a[1];}
- const poly=pts.map((_,i)=>i);if(area<0)poly.reverse();const idx=[];let guard=0;
- while(poly.length>3&&guard++<1000){let found=false;for(let i=0;i<poly.length;i++){
- const a=poly[(i+poly.length-1)%poly.length],b=poly[i],c=poly[(i+1)%poly.length];if(cross(pts[a],pts[b],pts[c])<1e-6)continue;
- let inside=false;for(const d of poly){if(d===a||d===b||d===c)continue;
- const p=pts[d];if(cross(pts[a],pts[b],p)>=0&&cross(pts[b],pts[c],p)>=0&&cross(pts[c],pts[a],p)>=0){inside=true;break;}}
- if(inside)continue;idx.push(a,b,c);poly.splice(i,1);found=true;break;}
- if(!found)break;}
- if(poly.length===3)idx.push(...poly);
- if(idx.length<3){idx.length=0;for(let i=1;i<pts.length-1;i++)idx.push(0,i,i+1);}
- const v=[];for(const [x,z] of pts)v.push(x,-.012,z,0,1,0,0,0);
- return {v:new Float32Array(v),i:new Uint16Array(idx)};
+// The user's actual XR floor plane is y=0 in a local-floor / bounded-floor reference space.
+// The browser may expose a Guardian polygon, but our comfort floor intentionally extends past it.
+function configureFloor(){floorSource=ref?.boundsGeometry?.length?'bounded-floor reference':'local-floor reference';}
+function drawGround(vp,head){if(!state.ground)return;
+ const headPos=head||[player.x,player.y+1.64,player.z];
+ const y=session?player.y-.018:player.y-.018;
+ const far=Math.max(10,state.period*(state.radius+3)*2.2),near=far*.67;
+ const plane=mm(mt(headPos[0],y,headPos[2]),mm(rx(-PI/2),ms(far*1.55,far*1.55,1)));
+ gl.useProgram(floorShader);gl.uniformMatrix4fv(fU.vp,false,vp);
+ gl.uniformMatrix4fv(fU.model,false,plane);gl.uniform3f(fU.center,headPos[0],y,headPos[2]);
+ gl.uniform1f(fU.near,near);gl.uniform1f(fU.far,far);
+ gl.bindVertexArray(quad);gl.disable(gl.BLEND);gl.disable(gl.CULL_FACE);
+ gl.enable(gl.DEPTH_TEST);gl.depthMask(true);gl.drawArrays(gl.TRIANGLES,0,6);
 }
-function configureFloor(){
- const points=ref?.boundsGeometry?.length>=3?Array.from(ref.boundsGeometry,p=>[p.x,p.z]):[];
- floorSource=points.length?'headset play-area floor':'tracked floor (no boundary supplied)';
- if(floorMesh){gl.deleteVertexArray(floorMesh.vao);gl.deleteBuffer(floorMesh.instance);}
- floorMesh=mesh(floorGeometry(points));upload(floorMesh,[rec(mid(),[.23,.24,.26],[0,0,0])]);
-}
-function drawGround(vp){if(!state.ground)return;
- if(!floorMesh)configureFloor();
- setupMaterial(vp,[0,0,0],4);drawOne(floorMesh,session?rig():mid(),null,false,false,false);
-}
-function render(vp,eye){drawGround(vp);drawMeshes(vp,eye);drawSection(vp);
+function render(vp,eye){drawGround(vp,eye);drawMeshes(vp,eye);drawSection(vp);
  if(state.menu)drawQuad(uiShader,quad,vp,menuPose,menuTexture);gl.bindVertexArray(null);}
 function rig(){return mm(mt(player.x,player.y,player.z),ry(player.yaw));}
 function headFromTracking(tracking){return mm(rig(),tracking);}
@@ -357,16 +454,23 @@ function updateGrab(head){if(!grab)return;const D=mm(frameBody(head),invert(grab
 const k=canonicalKey();if(state.canonKey!==undefined&&state.canonKey!==null&&state.canonKey!==k && (performance.now()-(state.lastCanonToast||0))>450){notify('Canonical representative changed · orbit remains continuous');state.lastCanonToast=performance.now();}state.canonKey=k;}
 
 function rotateGenerator(dt){
- if(!state.animate||grab||state.representation!=='motif'){state.demoPose=null;return;}
- const g=GROUPS[state.group],generator=g.gens.find(q=>detR(q.r)>0);
- if(!generator){state.demoPose=null;return;} // Inversion and pure mirrors cannot be continuously rigidly interpolated.
- state.animPhase=mod((state.animPhase||0)+dt/4.0);
- const f=state.animPhase;
- // These current groups use quarter-turns about Y as their available proper generator.
- const angle=-(PI/2)*f,center=state.origin;
- const spin=mm(mt(...center),mm(ry(angle),mt(-center[0],-center[1],-center[2])));
- const rise=generator.t[1]*state.period*f;
- state.demoPose=mm(mt(0,rise,0),mm(spin,state.seed));
+ if(!state.animate||grab||state.representation!=='motif'){
+  state.demoTransforms=null;return;}
+ const group=GROUPS[state.group],generator=group.gens.find(g=>detR(g.r)>0&&key(g)!==key(op(I3)));
+ if(!generator){state.demoTransforms=null;return;}
+ state.animPhase=mod((state.animPhase||0)+dt/5.0);
+ const f=state.animPhase,L=state.period,center=state.origin;
+ // All instances in one centered stage move together. Their endpoints permute the orbit.
+ // Screw motion is the intentional exception: it advances axially by a quarter-period.
+ const spin=mm(mt(...center),mm(ry(-PI*.5*f),mt(-center[0],-center[1],-center[2])));
+ const animation=mm(mt(0,group.screw?generator.t[1]*L*f:0,0),spin),records=[];
+ for(const o of group.ops){const m=mm(cellOp([0,0,0],o),state.seed),p=[m[12],m[13],m[14]];
+   m[12]-=Math.round((p[0]-center[0])/L)*L;
+   m[14]-=Math.round((p[2]-center[2])/L)*L;
+   m[13]-=Math.floor((p[1]-center[1])/L)*L;
+   records.push(rec(mm(animation,m),[1.12,.88,.53],[0,0,0]));
+ }
+ state.demoTransforms=records;upload(demoMeshes[state.motif],records);
 }
 function scaleCanvas(){const w=Math.max(2,Math.round(innerWidth*Math.min(devicePixelRatio||1,1.5))),h=Math.max(2,Math.round(innerHeight*Math.min(devicePixelRatio||1,1.5)));if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;}}
 function tickCommon(time,dt,head){trackHead=head;updateGrab(head);if(state.fadeViewer){const next=head.slice(12,15).map((v,i)=>Math.floor((v-state.origin[i])/state.period));if(next.some((v,i)=>v!==state.followCenter[i]))state.dirty=true;}if(state.dirty)regen();if(toastTime&&time>toastTime){$('toast').classList.remove('show');toastTime=0;}}
@@ -374,7 +478,7 @@ function desktop(time){if(session)return;const dt=clamp((time-lastFrame)/1000||0
 function once(k,press){const old=pressed.get(k)||false;pressed.set(k,press);return press&&!old;}
 function dead(v){return Math.abs(v)<.18?0:v;}
 function controllerInput(frame,pose,dt,head){for(const src of session.inputSources){if(!src.gamepad)continue;const pad=src.gamepad,side=src.handedness,axes=pad.axes;let ax=dead(axes.length>=4?axes[axes.length-2]:axes[0]||0),ay=dead(axes.length>=4?axes[axes.length-1]:axes[1]||0);
-if(side==='left')moveByInput(dt,-ay,ax,0);
+if(side==='left')moveByInput(dt,-ay,-ax,0);
 if(side==='right'){
  if(state.menu){if(once('menu-v',Math.abs(ay)>.65))state.menuRow=(state.menuRow+(ay>0?1:-1)+MENU.length)%MENU.length;
  if(once('menu-h',Math.abs(ax)>.65))menuChange(ax>0?1:-1);
@@ -392,12 +496,12 @@ if(side==='right'&&once('rightTrigger',!!pad.buttons[0]?.pressed)&&state.menu)me
 function xrFrame(time,frame){if(!session)return;session.requestAnimationFrame(xrFrame);const pose=frame.getViewerPose(ref);if(!pose)return;const dt=clamp((time-lastFrame)/1000||0,0,.05);lastFrame=time;const tracked=pose.transform.matrix;let head=headFromTracking(tracked);trackHead=head;controllerInput(frame,pose,dt,head);head=headFromTracking(tracked);tickCommon(time,dt,head);rotateGenerator(dt);
 gl.bindFramebuffer(gl.FRAMEBUFFER,session.renderState.baseLayer.framebuffer);gl.clearColor(.018,.039,.066,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
 const R=rig();for(const view of pose.views){const port=session.renderState.baseLayer.getViewport(view);gl.viewport(port.x,port.y,port.width,port.height);const eye=mm(R,view.transform.matrix),vp=mm(view.projectionMatrix,invert(eye));render(vp,[eye[12],eye[13],eye[14]]);}}
-async function enter(){if(session){await session.end();return;}if(!navigator.xr){notify('Quest Browser over HTTPS is required for WebXR');return;}try{await gl.makeXRCompatible();session=await navigator.xr.requestSession('immersive-vr',{optionalFeatures:['local-floor','bounded-floor']});session.addEventListener('end',()=>{session=null;ref=null;floorMesh=null;pressed.clear();state.menu=false;$('panel').style.display='';$('enter').textContent='ENTER IMMERSIVE VR';lastFrame=0;requestAnimationFrame(desktop);});session.updateRenderState({baseLayer:new XRWebGLLayer(session,gl,{alpha:false,depth:true,antialias:true,framebufferScaleFactor:0.9})});try{ref=await session.requestReferenceSpace('bounded-floor');}catch(_){try{ref=await session.requestReferenceSpace('local-floor');}catch(__){ref=await session.requestReferenceSpace('local');}}configureFloor();pressed.clear();$('panel').style.display='none';$('enter').textContent='EXIT VR';lastFrame=0;session.requestAnimationFrame(xrFrame);}catch(e){session=null;error(e);}}
+async function enter(){if(session){await session.end();return;}if(!navigator.xr){notify('Quest Browser over HTTPS is required for WebXR');return;}try{await gl.makeXRCompatible();session=await navigator.xr.requestSession('immersive-vr',{optionalFeatures:['local-floor','bounded-floor']});session.addEventListener('end',()=>{session=null;ref=null;pressed.clear();state.menu=false;$('panel').style.display='';$('enter').textContent='ENTER IMMERSIVE VR';lastFrame=0;requestAnimationFrame(desktop);});session.updateRenderState({baseLayer:new XRWebGLLayer(session,gl,{alpha:false,depth:true,antialias:true,framebufferScaleFactor:0.9})});try{ref=await session.requestReferenceSpace('bounded-floor');}catch(_){try{ref=await session.requestReferenceSpace('local-floor');}catch(__){ref=await session.requestReferenceSpace('local');}}configureFloor();pressed.clear();$('panel').style.display='none';$('enter').textContent='EXIT VR';lastFrame=0;session.requestAnimationFrame(xrFrame);}catch(e){session=null;error(e);}}
 function wire(){GROUPS.forEach((g,i)=>{const opt=document.createElement('option');opt.value=i;opt.textContent=`#${g.id} ${g.symbol} — ${g.desc}`;$('group').appendChild(opt);});
-for(const [name,fn] of Object.entries({group:v=>setVal('group',+v),representation:v=>setVal('representation',v),motif:v=>setVal('motif',v),family:v=>setVal('family',v),pattern:v=>setVal('pattern',+v),coverage:v=>setVal('coverage',+v/100),period:v=>setVal('period',+v),radius:v=>setVal('radius',+v),fadeStart:v=>setVal('fadeStart',+v),occupancy:v=>setVal('occupancy',+v/100),sectionY:v=>setVal('sectionY',+v),fadeStyle:v=>setVal('fadeStyle',v)}))$(name).addEventListener('input',e=>fn(e.target.value));
-for(const k of ['safety','fadeViewer','grid','ground','animate','sliceFollow'])$(k).addEventListener('change',e=>setVal(k,e.target.checked));$('reset').onclick=resetAll;$('enter').onclick=enter;
+for(const [name,fn] of Object.entries({group:v=>setVal('group',+v),representation:v=>setVal('representation',v),motif:v=>setVal('motif',v),volume:v=>setVal('volume',v),family:v=>setVal('family',v),pattern:v=>setVal('pattern',+v),coverage:v=>setVal('coverage',+v/100),period:v=>setVal('period',+v),radius:v=>setVal('radius',+v),fadeStart:v=>setVal('fadeStart',+v),occupancy:v=>setVal('occupancy',+v/100),sectionY:v=>setVal('sectionY',+v),fadeStyle:v=>setVal('fadeStyle',v),quality:v=>setVal('quality',v)}))$(name).addEventListener('input',e=>fn(e.target.value));
+for(const k of ['safety','fadeViewer','grid','ground','animate','sliceFollow','exterior','scaleMotif'])$(k).addEventListener('change',e=>setVal(k,e.target.checked));$('reset').onclick=resetAll;$('enter').onclick=enter;
 window.addEventListener('keydown',e=>{if(e.target instanceof HTMLInputElement||e.target instanceof HTMLSelectElement)return;keys.add(e.code);if(e.repeat)return;if(e.code==='BracketRight')changeGroup(state.group+1);if(e.code==='BracketLeft')changeGroup(state.group-1);if(e.code==='KeyM'){const a=['archer','target','tree'];setVal('motif',a[(a.indexOf(state.motif)+1)%a.length]);}if(e.code==='KeyH'){const head=mm(mt(player.x,player.y+1.64,player.z),ry(player.yaw));openMenu(head);}if(e.code==='KeyC'||e.code==='KeyV'){const h=mm(mt(player.x,player.y+1.64,player.z),ry(player.yaw));toggleGrab([h[12],h[13],h[14]],norm([-h[8],0,-h[10]]),h);}});
 window.addEventListener('keyup',e=>keys.delete(e.code));cv.addEventListener('pointerdown',e=>{drag=true;dragLast=[e.clientX,e.clientY];cv.setPointerCapture(e.pointerId);});cv.addEventListener('pointermove',e=>{if(!drag)return;player.yaw-=(e.clientX-dragLast[0])*.005;player.pitch=clamp(player.pitch-(e.clientY-dragLast[1])*.005,-1.25,1.25);dragLast=[e.clientX,e.clientY];});cv.addEventListener('pointerup',()=>drag=false);}
 try{syncUI();loadAssets().catch(error);requestAnimationFrame(desktop);}catch(e){error(e);}
-window.SPACEGROUP_DEBUG={GROUPS,state,closure,compose,key,cellOp,point,mm,resetAll,regen,changeGroup,canonicalKey,defaultSize,detR,get floorSource(){return floorSource},get volumeTexture(){return volumeTexture},get sheetCount(){return panels.instances}};
+window.SPACEGROUP_DEBUG={GROUPS,state,closure,compose,key,cellOp,point,mm,resetAll,regen,changeGroup,canonicalKey,defaultSize,detR,get floorSource(){return floorSource},get volumeTexture(){return volumeTexture},get materialNames(){return Object.keys(solidVolumes)},get canonicalCache(){return canonicalCache},get sheetCount(){return panels.instances},get sheetTexture(){return sheetTexture},setVal,render};
 })();
