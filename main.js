@@ -1,4 +1,4 @@
-/* Spacegroup Atlas 0.6 — self-contained WebGL2 + WebXR, no CDN.
+/* Spacegroup Atlas 0.7 — self-contained WebGL2 + WebXR, no CDN.
    CC0 geometry: Kenney Mini Forest and Pattern Packs. Source MIT.
    Group actions remain exact; the finite/faded viewing window is not a space-group invariant. */
 (()=>{'use strict';
@@ -39,7 +39,7 @@ const point=(m,p)=>[m[0]*p[0]+m[4]*p[1]+m[8]*p[2]+m[12],m[1]*p[0]+m[5]*p[1]+m[9]
 const sub=(a,b)=>a.map((x,i)=>x-b[i]),add=(a,b)=>a.map((x,i)=>x+b[i]),scale=(a,s)=>a.map(v=>v*s),len=a=>Math.hypot(...a),norm=a=>scale(a,1/(len(a)||1));
 function rod(a,b,w){const delta=sub(b,a),l=len(delta),y=norm(delta),axis=Math.abs(y[1])>.92?[1,0,0]:[0,1,0],x=norm([axis[1]*y[2]-axis[2]*y[1],axis[2]*y[0]-axis[0]*y[2],axis[0]*y[1]-axis[1]*y[0]]),z=[x[1]*y[2]-x[2]*y[1],x[2]*y[0]-x[0]*y[2],x[0]*y[1]-x[1]*y[0]],p=scale(add(a,b),.5);
  return new Float32Array([x[0]*w,x[1]*w,x[2]*w,0,y[0]*l,y[1]*l,y[2]*l,0,z[0]*w,z[1]*w,z[2]*w,0,...p,1]);}
-const state={group:2,motif:'archer',volume:'oak',representation:'motif',family:'opaque',pattern:0,coverage:.22,sheetOpacity:.22,densityCoverage:.30,period:.6,radius:4,fadeStart:3,occupancy:.25,scaleMotif:true,quality:'safe',exterior:false,safety:true,fadeViewer:false,grid:true,ground:false,animate:false,sliceFollow:true,sectionY:1.2,fadeStyle:'contrast',origin:[0,1.38,-1.7],seedFrac:[.21,.34,.27],seed:mid(),safeRadius:0,seedRadius:1,selected:null,dirty:true,anchor:0,menu:false,menuRow:0,sliceAuto:false,followCenter:[0,0,0],instances:[],sceneCount:0,fadeEnd:6};
+const state={group:2,motif:'archer',volume:'oak',representation:'motif',family:'opaque',pattern:0,coverage:.22,sheetOpacity:.22,densityCoverage:.30,period:.6,radius:4,fadeStart:3,occupancy:.25,scaleMotif:false,quality:'safe',exterior:false,safety:true,fadeViewer:false,grid:true,ground:false,animate:false,sliceFollow:true,sectionY:1.2,fadeStyle:'contrast',origin:[0,1.38,-1.7],seedFrac:[.21,.34,.27],seed:mid(),safeRadius:0,seedRadius:1,selected:null,dirty:true,anchor:0,menu:false,menuRow:0,sliceAuto:false,followCenter:[0,0,0],fadeAnchor:null,instances:[],sceneCount:0,fadeEnd:6};
 const player={x:0,y:0,z:0,yaw:0,pitch:0,speed:1.15};
 let session=null,ref=null,lastFrame=0,trackHead=null,trackFrame=null,keys=new Set(),pressed=new Map(),menuPose=mid(),drag=false,dragLast=null,grab=null,nearSelected=-1,texLoaded=false,toastTime=0;
 wire(); // Populate controls before compiling WebGL shaders.
@@ -67,7 +67,7 @@ precision highp sampler3D;
 precision highp int;
 in vec3 vNormal,vTint,vPos;in vec2 vUV;in float vFade;
 uniform sampler2D uTex;uniform sampler3D uVolume;
-uniform int uTextured,uFadeStyle,uIsFill,uPanelSym;uniform float uCoverageThreshold,uPeriod;uniform vec3 uLight,uOrigin;
+uniform int uTextured,uFadeStyle,uIsFill,uPanelSym,uGroup;uniform float uCoverageThreshold,uPeriod;uniform vec3 uLight,uOrigin;
 out vec4 outColor;
 float bayer(vec2 p){ivec2 q=ivec2(mod(floor(p),4.));int i=q.x+4*q.y;float b[16]=float[16](0.,8.,2.,10.,12.,4.,14.,6.,3.,11.,1.,9.,15.,7.,13.,5.);return (b[i]+.5)/16.;}
 vec2 invariantUV(vec2 uv){
@@ -78,7 +78,41 @@ vec2 invariantUV(vec2 uv){
   if(uPanelSym==4){vec2 q=2.*abs(uv-.5);return vec2(max(q.x,q.y),min(q.x,q.y));} // D4
   return uv;
 }
-void main(){vec4 tex=uIsFill==1?texture(uVolume,(vPos-uOrigin)/uPeriod):uTextured==1?texture(uTex,uIsFill==2?invariantUV(vUV):vUV):vec4(1.);
+bool smaller(vec3 a,vec3 b){
+ if(a.x<b.x-.000001)return true;if(a.x>b.x+.000001)return false;
+ if(a.y<b.y-.000001)return true;if(a.y>b.y+.000001)return false;
+ return a.z<b.z-.000001;
+}
+vec3 canonicalPosition(vec3 p){
+ vec3 c=p;
+ if(uGroup==1){vec3 q=fract(-p);if(smaller(q,c))c=q;}
+ else if(uGroup==2)c.x=min(p.x,1.-p.x);
+ else if(uGroup==3||uGroup==4){
+  vec3 q=p;
+  for(int i=0;i<4;i++){
+   if(smaller(q,c))c=q;
+   q=vec3(fract(-q.z),fract(q.y+(uGroup==4?.25:0.)),q.x);
+  }
+ }else if(uGroup==5){
+  vec2 a=min(p.xz,1.-p.xz);c=vec3(min(a.x,a.y),p.y,max(a.x,a.y));
+ }else if(uGroup==6)c=min(p,1.-p);
+ else if(uGroup==7){
+  c=min(p,1.-p);
+  if(c.x>c.y){float t=c.x;c.x=c.y;c.y=t;}
+  if(c.y>c.z){float t=c.y;c.y=c.z;c.z=t;}
+  if(c.x>c.y){float t=c.x;c.x=c.y;c.y=t;}
+ }
+ return c;
+}
+void main(){
+  // Fold every 3D point into the selected space group's finite-orbit quotient.
+  // The tile count is an integer, ensuring exact repetition at unit-cell seams.
+  // This UV is constant on group orbits, unlike the older independent panel UVs.
+  vec3 c=canonicalPosition(fract((vPos-uOrigin)/uPeriod));
+  float tileCount=max(1.,floor(uPeriod/.46+.5));
+  vec2 sheetUV=vec2(c.x+.37*c.z,c.y+.53*c.z)*tileCount;
+  // The finite-group panel stabilizer has been incorporated in the projection.
+  vec4 tex=uIsFill==1?texture(uVolume,(vPos-uOrigin)/uPeriod):uTextured==1?texture(uTex,uIsFill==2?sheetUV:vUV):vec4(1.);
 // Sheet material uses baked, group-symmetrized Kenney RGBA, including transparency.
 if(tex.a<.02)discard;
 float fade=vFade;
@@ -88,7 +122,10 @@ if(uFadeStyle==0 && fade<.999 && fade<bayer(gl_FragCoord.xy))discard;
 float lighting=.74+.26*abs(dot(normalize(vNormal),normalize(uLight)));
 vec3 color=tex.rgb*vTint*lighting;
 if(uFadeStyle==3)color=mix(vec3(.018,.039,.066),color,fade);
-outColor=vec4(color,uIsFill==2?tex.a*uCoverageThreshold*fade:(uIsFill==1?tex.a*uCoverageThreshold*fade:(uFadeStyle==1?fade:1.)));
+// Kenney textures were uploaded premultiplied. ONE / ONE_MINUS_SRC_ALPHA
+ // prevents dark RGB under transparent edge pixels from producing black seams.
+ if(uIsFill==2){float a=uCoverageThreshold*fade;outColor=vec4(color*a,tex.a*a);}
+ else outColor=vec4(color,uIsFill==1?tex.a*uCoverageThreshold*fade:(uFadeStyle==1?fade:1.));
 }`;
 const planeVS=`#version 300 es
 precision highp float;
@@ -98,13 +135,13 @@ out vec3 vPos;
 void main(){vec4 wp=uPlane*vec4(aXY,0.,1.);vPos=wp.xyz;gl_Position=uVP*wp;}`;
 const planeFS=`#version 300 es
 precision highp float;precision highp sampler3D;
-in vec3 vPos;uniform sampler3D uVolume;uniform vec3 uOrigin;uniform float uPeriod,uCoverageThreshold;
+in vec3 vPos;uniform sampler3D uVolume;uniform vec3 uOrigin;uniform float uPeriod;
 out vec4 outColor;
 void main(){
  // This is a single fully opaque section through a SOLID RGB volume. Alpha is
  // auxiliary morphology and must not erase the material's quieter interior.
  vec3 f=texture(uVolume,(vPos-uOrigin)/uPeriod).rgb;
- float contrast=mix(.65,1.65,uCoverageThreshold);
+ float contrast=1.15;
  outColor=vec4(clamp((f-.5)*contrast+.5,0.,1.),1.);
 }`;
 const floorVS=`#version 300 es
@@ -113,16 +150,22 @@ uniform mat4 uVP,uModel;out vec3 vPos;
 void main(){vec4 p=uModel*vec4(aXY,0.,1.);vPos=p.xyz;gl_Position=uVP*p;}`;
 const floorFS=`#version 300 es
 precision highp float;in vec3 vPos;uniform vec3 uCenter;uniform float uNear,uFar;out vec4 outColor;
-void main(){float d=length(vPos.xz-uCenter.xz);if(d>uFar)discard;float t=smoothstep(uNear,uFar,d);
- vec3 nearColor=vec3(.105,.119,.132);vec3 sky=vec3(.018,.039,.066);
- outColor=vec4(mix(nearColor,sky,t),1.);}`;
+void main(){float d=length(vPos.xz-uCenter.xz);if(d>uFar)discard;
+ vec3 floorColor=vec3(.19,.215,.225);
+ float fine=min(abs(fract(vPos.x/.5+.5)-.5),abs(fract(vPos.z/.5+.5)-.5));
+ float ink=1.-smoothstep(.013,.032,fine);
+ // Make the horizontal plane legible; the grid stays fixed in the world.
+ floorColor=mix(floorColor,vec3(.12,.135,.15),ink*.36);
+ float edge=smoothstep(uNear,uFar,d);
+ outColor=vec4(mix(floorColor,vec3(.018,.039,.066),edge*.77),1.);
+}`;
 const exteriorVS=`#version 300 es
 precision highp float;layout(location=0) in vec3 aPos;
 uniform mat4 uVP,uBox;out vec3 vWorld;
 void main(){vec4 w=uBox*vec4(aPos,1.);vWorld=w.xyz;gl_Position=uVP*w;}`;
 const exteriorFS=`#version 300 es
 precision highp float;precision highp sampler3D;
-in vec3 vWorld;uniform sampler3D uVolume;uniform vec3 uOrigin,uEye;uniform float uPeriod,uThreshold;uniform mat4 uVP;
+in vec3 vWorld;uniform sampler3D uVolume;uniform vec3 uOrigin,uEye;uniform float uPeriod;uniform mat4 uVP;
 out vec4 outColor;
 void main(){
  // The *whole solid block exterior* is displayed, not a sparse isodensity cloud.
@@ -131,14 +174,14 @@ void main(){
  // Surface-facing light variation, without reading the voxel density as an isosurface.
  vec3 n=normalize(cross(dFdx(vWorld),dFdy(vWorld)));
  float light=.73+.27*abs(dot(n,normalize(vec3(.4,.85,.36))));
- outColor=vec4(clamp((color-.5)*mix(.65,1.65,uThreshold)+.5,0.,1.)*light,1.);
+ outColor=vec4(clamp((color-.5)*1.15+.5,0.,1.)*light,1.);
 }`;
 const uiVS=`#version 300 es
 precision highp float;layout(location=0) in vec2 aXY;uniform mat4 uVP,uModel;out vec2 vUV;void main(){vUV=aXY*.5+.5;gl_Position=uVP*uModel*vec4(aXY,0.,1.);}`;
 const uiFS=`#version 300 es
 precision mediump float;in vec2 vUV;uniform sampler2D uTex;out vec4 outColor;void main(){outColor=texture(uTex,vec2(vUV.x,1.-vUV.y));}`;
 const meshShader=compile(VS,FS),sliceShader=compile(planeVS,planeFS),floorShader=compile(floorVS,floorFS),exteriorShader=compile(exteriorVS,exteriorFS),uiShader=compile(uiVS,uiFS),un=(p,n)=>gl.getUniformLocation(p,n);
-const mU={vp:un(meshShader,'uVP'),seed:un(meshShader,'uSeed'),viewer:un(meshShader,'uViewerCell'),origin:un(meshShader,'uOrigin'),period:un(meshShader,'uPeriod'),s0:un(meshShader,'uFadeStart'),s1:un(meshShader,'uFadeEnd'),txt:un(meshShader,'uTextured'),mode:un(meshShader,'uFadeStyle'),fill:un(meshShader,'uIsFill'),motif:un(meshShader,'uIsMotif'),cover:un(meshShader,'uCoverageThreshold'),tex:un(meshShader,'uTex'),volume:un(meshShader,'uVolume'),light:un(meshShader,'uLight'),panelSym:un(meshShader,'uPanelSym')};
+const mU={vp:un(meshShader,'uVP'),seed:un(meshShader,'uSeed'),viewer:un(meshShader,'uViewerCell'),origin:un(meshShader,'uOrigin'),period:un(meshShader,'uPeriod'),s0:un(meshShader,'uFadeStart'),s1:un(meshShader,'uFadeEnd'),txt:un(meshShader,'uTextured'),mode:un(meshShader,'uFadeStyle'),fill:un(meshShader,'uIsFill'),motif:un(meshShader,'uIsMotif'),cover:un(meshShader,'uCoverageThreshold'),tex:un(meshShader,'uTex'),volume:un(meshShader,'uVolume'),light:un(meshShader,'uLight'),panelSym:un(meshShader,'uPanelSym'),group:un(meshShader,'uGroup')};
 const sU={vp:un(sliceShader,'uVP'),plane:un(sliceShader,'uPlane'),origin:un(sliceShader,'uOrigin'),period:un(sliceShader,'uPeriod'),cover:un(sliceShader,'uCoverageThreshold'),volume:un(sliceShader,'uVolume')};
 const uiU={vp:un(uiShader,'uVP'),model:un(uiShader,'uModel'),tex:un(uiShader,'uTex')};
 const fU={vp:un(floorShader,'uVP'),model:un(floorShader,'uModel'),center:un(floorShader,'uCenter'),near:un(floorShader,'uNear'),far:un(floorShader,'uFar')};
@@ -157,9 +200,9 @@ face([0,1,0],[[-.5,.5,.5],[.5,.5,.5],[.5,.5,-.5],[-.5,.5,-.5]]);
 face([0,-1,0],[[-.5,-.5,-.5],[.5,-.5,-.5],[.5,-.5,.5],[-.5,-.5,.5]]);
 return {v:new Float32Array(v),i:new Uint16Array(idx)};}
 function panelGeom(){const v=[],idx=[0,1,2,0,2,3];for(const [x,y,u,w] of [[-.5,-.5,0,0],[.5,-.5,1,0],[.5,.5,1,1],[-.5,.5,0,1]])v.push(x,y,0,0,0,1,u,w);return {v:new Float32Array(v),i:new Uint16Array(idx)};}
-let rods=mesh(boxGeom()),panels=mesh(panelGeom()),exteriorMesh=mesh(boxGeom()),motifs={},demoMeshes={},texture={},loading=true;let volumeTexture=null,volumeDirty=true,volumeThreshold=.55,floorSource='headset floor reference',fixedSectionPose=null;let sheetRecordsSorted=[];const solidVolumes={};
+let rods=mesh(boxGeom()),panels=mesh(panelGeom()),sheetMeshes=[],exteriorMesh=mesh(boxGeom()),motifs={},demoMeshes={},texture={},loading=true;let volumeTexture=null,volumeDirty=true,volumeThreshold=.55,floorSource='headset floor reference',fixedSectionPose=null;let sheetRecordsSorted=[];const solidVolumes={};
 function upload(obj,arr){obj.records=arr;obj.instances=arr.length;const v=new Float32Array(arr.length*22);let i=0;for(const d of arr){v.set(d.m,i);i+=16;v.set(d.tint,i);i+=3;v.set(d.cell,i);i+=3;}gl.bindBuffer(gl.ARRAY_BUFFER,obj.instance);gl.bufferData(gl.ARRAY_BUFFER,v,gl.DYNAMIC_DRAW);}
-function makeTex(img){const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,img);gl.generateMipmap(gl.TEXTURE_2D);return t;}
+function makeTex(img){const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,true);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,img);gl.generateMipmap(gl.TEXTURE_2D);return t;}
 // Embedded binary assets make file:/// desktop testing work without a local server.
 // Hosted copies use the same data as an emergency fallback if an asset request fails.
 const EMBEDDED=window.SPACEGROUP_EMBEDDED_ASSETS||{};
@@ -173,14 +216,20 @@ async function loadAssets(){const paths=['target','tree','archer'];for(const nam
 texture.forest=await loadImg('assets/forest_colormap.png');for(const type of ['opaque','line'])for(let i=0;i<5;i++)texture[type+i]=await loadImg(`assets/${type}_${(type==='opaque'?[7,12,16,23,27]:[2,7,12,18,25])[i].toString().padStart(2,'0')}.png`);
 // Keep all solid fields available for immediate menu switching, including file:// usage.
 for(const kind of ['oak','walnut','strata']){
- const raw=new Uint8Array(await loadBinary('assets/volume_'+kind+'.rgba'));
+ const deflated=await loadBinary('assets/volume_'+kind+'.zlib');
+   if(typeof DecompressionStream==='undefined')throw Error('This browser requires DecompressionStream for the compressed solid materials.');
+   const stream=new Blob([deflated]).stream().pipeThrough(new DecompressionStream('deflate'));
+   const raw=new Uint8Array(await new Response(stream).arrayBuffer());
  if(raw.length!==VOL_N**3*4)throw Error('Invalid '+kind+' solid volume: '+raw.length+' bytes');
  solidVolumes[kind]=raw;
 }
+const faceData=window.SPACEGROUP_FUNDAMENTAL_FACES;
+if(!Array.isArray(faceData)||faceData.length!==GROUPS.length)throw Error('Missing fundamental-face geometry');
+for(const d of faceData)sheetMeshes.push(mesh({v:new Float32Array(d.v),i:new Uint16Array(d.i)}));
 loading=false;changeGroup(state.group);syncUI();notify('Ready · solid textures available');}
 // Independent data paths: a symmetrized Kenney RGBA wall material, and a genuine 3D density field.
 // Both are invariant under the selected finite point/screw operation group on the voxel grid.
-const VOL_N=64,volumeHist=new Uint32Array(256);
+const VOL_N=128,volumeHist=new Uint32Array(256);
 function upload3D(existing,data,N=VOL_N){const tex=existing||gl.createTexture();
  // WebGL forbids UNPACK_FLIP_Y_WEBGL and UNPACK_PREMULTIPLY_ALPHA_WEBGL
  // with texImage3D(ArrayBufferView). Prior 2D image uploads set FLIP_Y=true,
@@ -209,16 +258,32 @@ function canonicalPoint(x,y,z,ops){let bx=2,by=2,bz=2;
 const canonicalCache=new Map();
 function canonicalMap(g){
  if(canonicalCache.has(g))return canonicalCache.get(g);
- const N=VOL_N,ops=GROUPS[g].ops,map=new Uint32Array(N*N*N);
- for(let z=0;z<N;z++)for(let y=0;y<N;y++)for(let x=0;x<N;x++){
-  const f=canonicalPoint((x+.5)/N,(y+.5)/N,(z+.5)/N,ops);
-  const cx=clamp(Math.floor(f[0]*N),0,N-1),cy=clamp(Math.floor(f[1]*N),0,N-1),cz=clamp(Math.floor(f[2]*N),0,N-1);
-  map[x+N*(y+N*z)]=cx+N*(cy+N*cz);
+ const N=VOL_N,count=N*N*N,parent=new Uint32Array(count),gens=GROUPS[g].gens;
+ for(let i=0;i<count;i++)parent[i]=i;
+ const root=a=>{while(parent[a]!==a){parent[a]=parent[parent[a]];a=parent[a];}return a;};
+ // The three generators suffice to connect every orbit. Linking always to the
+ // smallest index produces a deterministic canonical voxel without O(|G|N³).
+ for(const operation of gens){
+  const r=operation.r,t=operation.t;
+  const axes=[],signs=[],offsets=[];
+  for(let row=0;row<3;row++){
+   const a=r.slice(row*3,row*3+3).findIndex(v=>v!==0);
+   axes.push(a);signs.push(r[row*3+a]);offsets.push(Math.round(t[row]*N));
+  }
+  const wrap=k=>(k+N)%N;
+  for(let z=0;z<N;z++)for(let y=0;y<N;y++)for(let x=0;x<N;x++){
+   const xyz=[x,y,z],out=new Array(3);
+   for(let k=0;k<3;k++)out[k]=wrap((signs[k]>0?xyz[axes[k]]:N-1-xyz[axes[k]])+offsets[k]);
+   const a=x+N*(y+N*z),b=out[0]+N*(out[1]+N*out[2]);
+   let ra=root(a),rb=root(b);
+   if(ra!==rb){if(ra<rb)parent[rb]=ra;else parent[ra]=rb;}
+  }
  }
- canonicalCache.set(g,map);return map;
+ for(let i=0;i<count;i++)parent[i]=root(i);
+ canonicalCache.clear();canonicalCache.set(g,parent);return parent;
 }
 function rebuildVolume(){if(loading)return;
- const N=VOL_N,ops=GROUPS[state.group].ops;
+ const N=VOL_N;
  if(!volumeDirty||state.representation!=='slice')return;
  const source=solidVolumes[state.volume];
  if(!source)throw Error('Missing solid texture '+state.volume);
@@ -229,72 +294,63 @@ function rebuildVolume(){if(loading)return;
   vox[a]=source[b];vox[a+1]=source[b+1];vox[a+2]=source[b+2];vox[a+3]=source[b+3];
   volumeHist[vox[a+3]]++;
  }
- volumeTexture=upload3D(volumeTexture,vox);volumeDirty=false;updateCoverageThreshold();
+ volumeTexture=upload3D(volumeTexture,vox);volumeDirty=false;
 }
 function updateCoverageThreshold(){volumeThreshold=state.coverage;}
 function rec(m,tint,cell,extra={}){return {m,tint,cell,...extra};}
-function changeGroup(i){state.group=(i+GROUPS.length)%GROUPS.length;volumeDirty=true;if(state.quality==='safe'||state.quality==='balanced'){const r=(state.group===7?4:state.group===6?5:6)+(state.quality==='balanced'?1:0);state.radius=r;state.fadeStart=Math.max(0,r-2);}state.seedFrac=[.21,.34,.27];resetSeed();state.dirty=true;syncUI();notify(GROUPS[state.group].symbol+' · '+GROUPS[state.group].desc);}
+function changeGroup(i){state.group=(i+GROUPS.length)%GROUPS.length;volumeDirty=true;if(state.quality==='safe'||state.quality==='balanced'){const r=(state.group===7?4:state.group===6?5:6)+(state.quality==='balanced'?1:0);state.radius=r;state.fadeStart=Math.max(0,r-2);}state.seedFrac=state.safety?[.211,.347,.273]:[0,0,0];resetSeed();state.dirty=true;syncUI();notify(GROUPS[state.group].symbol+' · '+GROUPS[state.group].desc);}
 function initialPose(){const p=state.period,o=state.origin;return mt(o[0]+p*state.seedFrac[0],o[1]+p*state.seedFrac[1],o[2]+p*state.seedFrac[2]);}
 function safeSize(){const ops=GROUPS[state.group].ops,p=state.seedFrac;const centers=[];for(const o of ops)for(let x=-1;x<=1;x++)for(let y=-1;y<=1;y++)for(let z=-1;z<=1;z++){const v=rV(o.r,p);centers.push([v[0]+o.t[0]+x,v[1]+o.t[1]+y,v[2]+o.t[2]+z]);}let min=Infinity;for(const q of centers){const d=len(sub(q,p));if(d>1e-5)min=Math.min(min,d);}return min;}
 function defaultSize(){const rad=state.motif==='archer'?motifs.archer?.radius:state.motif==='tree'?motifs.tree?.radius:state.motif==='target'?motifs.target?.radius:Math.SQRT1_2;
 const desired=state.period*state.occupancy;return state.safety?Math.min(desired,Math.max(.01,state.period*(safeSize()*.48/(rad||.8)))):desired;}
-function resetSeed(){grab=null;state.canonKey=null;state.animBase=null;state.animPhase=0;const p=initialPose();state.seed=mm(p,ms(defaultSize()));state.dirty=true;}
-function resetAll(){player.x=0;player.y=0;player.z=0;player.yaw=0;player.pitch=0;state.origin=[0,1.38,-1.7];resetSeed();notify('Seed and view reset');}
+function resetSeed(){state.seedFrac=state.safety?[.211,.347,.273]:[0,0,0];grab=null;state.canonKey=null;state.animBase=null;state.animPhase=0;const p=initialPose();state.seed=mm(p,ms(defaultSize()));state.dirty=true;}
+function resetAll(){player.x=0;player.y=0;player.z=0;player.yaw=0;player.pitch=0;state.origin=[0,1.38,-1.7];state.fadeAnchor=null;resetSeed();notify('Seed and view reset');}
 function cellOp(c,o){const L=state.period,center=state.origin,v=[L*(c[0]+o.t[0]),L*(c[1]+o.t[1]),L*(c[2]+o.t[2])],ro=rV(o.r,center);return affine(o.r,add(v,sub(center,ro)));}
 function regen(){if(loading)return;state.dirty=false;
-const motifRecords=[],sheetRecords=[],rodRecords=[],group=GROUPS[state.group],L=state.period,R=state.radius;
- const [ox,oy,oz]=state.origin;
- const faceSeeds=[mm(mt(ox+L*.5,oy+L*.5,oz),ms(L,L,1)),
-  mm(mt(ox+L*.5,oy,oz+L*.5),mm(rx(-PI/2),ms(L,L,1))),
-  mm(mt(ox,oy+L*.5,oz+L*.5),mm(ry(PI/2),ms(L,L,1)))];
- if(state.representation==='slice'&&volumeDirty)rebuildVolume();
-const poolCenter=state.fadeViewer&&trackHead?trackHead.slice(12,15).map((v,i)=>Math.floor((v-state.origin[i])/L)):[0,0,0];state.followCenter=poolCenter;
-// Viewer-centered fade gets a one-cell invisible halo. Specimen-centered mode has no halo.
-// Never secretly shrink the requested crop for a high-order group.
-const poolR=R+(state.fadeViewer?1:0),cells=[];
-for(let x=-poolR;x<=poolR;x++)for(let y=-poolR;y<=poolR;y++)for(let z=-poolR;z<=poolR;z++){const tax=Math.abs(x)+Math.abs(y)+Math.abs(z);if(tax>poolR)continue;const c=[x+poolCenter[0],y+poolCenter[1],z+poolCenter[2]];cells.push({c,tax});}
-const seenSheets=new Set();
+const motifRecords=[],rodRecords=[],sheetRecords=[],group=GROUPS[state.group],L=state.period,R=state.radius;
+if(state.representation==='slice'&&volumeDirty)rebuildVolume();
+const camera=trackHead?Array.from(trackHead.slice(12,15)):[player.x,player.y+1.64,player.z];
+if(!state.fadeAnchor)state.fadeAnchor=state.origin.map(v=>v+.5*L);
+const fadePoint=state.fadeViewer?camera:state.fadeAnchor;
+const poolCenter=fadePoint.map((v,i)=>Math.floor((v-state.origin[i])/L));state.followCenter=poolCenter;
+// Include a one-cell halo so a cutoff at radius=1 is still fully represented.
+const poolR=R+1,cells=[];
+for(let x=-poolR;x<=poolR;x++)for(let y=-poolR;y<=poolR;y++)for(let z=-poolR;z<=poolR;z++){
+ const tax=Math.abs(x)+Math.abs(y)+Math.abs(z);if(tax>poolR)continue;
+ const c=[x+poolCenter[0],y+poolCenter[1],z+poolCenter[2]];cells.push({c,tax});}
 for(const {c,tax} of cells){
- if(state.grid && tax<=R){for(let a=0;a<3;a++){const p=add(state.origin,scale(c,L)),next=p.slice();next[a]+=L;rodRecords.push(rec(rod(p,next,L*.005),[.31,.33,.36],c));}}
- for(let k=0;k<group.ops.length;k++){
-  const o=group.ops[k],g=cellOp(c,o);
-  if(state.representation==='motif'){motifRecords.push(rec(g,[1,1,1],c,{opIndex:k,op:o}));}
-  if(state.representation==='sheet'){
-   for(const face of faceSeeds){const model=mm(g,face);
-    const corners=[[-.5,-.5,0],[.5,-.5,0],[.5,.5,0],[-.5,.5,0]]
-     .map(p=>point(model,p).map((v,i)=>Math.round((v-state.origin[i])/L*1000)).join(','));
-    corners.sort();const faceKey=corners.join('|');
-    if(!seenSheets.has(faceKey)){seenSheets.add(faceKey);sheetRecords.push(rec(model,[1,1,1],c));}
-   }
-  }
- }
+ if(state.grid&&tax<=R){for(let a=0;a<3;a++){
+  const p=add(state.origin,scale(c,L)),next=p.slice();next[a]+=L;
+  rodRecords.push(rec(rod(p,next,L*.005),[.31,.33,.36],c));}}
+ if(state.representation==='motif')for(let k=0;k<group.ops.length;k++)
+  motifRecords.push(rec(cellOp(c,group.ops[k]),[1,1,1],c,{opIndex:k,op:group.ops[k]}));
+ if(state.representation==='sheet')
+  sheetRecords.push(rec(mm(mt(state.origin[0]+c[0]*L,state.origin[1]+c[1]*L,state.origin[2]+c[2]*L),ms(L)),[1,1,1],c));
 }
-state.instances=motifRecords;state.effectiveRadius=R;state.sceneCount=state.representation==='motif'?motifRecords.length:state.representation==='sheet'?sheetRecords.length:0;
+state.instances=motifRecords;state.effectiveRadius=R;
+state.sceneCount=state.representation==='motif'?motifRecords.length:state.representation==='sheet'?sheetRecords.length:0;
 for(const m of Object.values(motifs))upload(m,motifRecords);
-sheetRecordsSorted=sheetRecords;lastSheetEye=null;upload(panels,sheetRecords);upload(rods,rodRecords);
-syncStats();}
-function syncStats(){const g=GROUPS[state.group];$('status').textContent=`${g.symbol} · #${g.id} · ${g.ops.length} operations\n${state.sceneCount.toLocaleString()} loaded instances · ${Math.round(state.period*100)} cm periods\n${state.safety?'Safe initial placement':'Free initial placement'} · ${state.representation==='slice'?'Solid '+state.volume+' / section':state.representation==='sheet'?'Textured lattice walls':'3D motif orbit'}${state.sceneCount>20000?'\nHigh instance count: reduce radius if Quest performance drops':''}`;}
+if(state.representation==='sheet'&&sheetMeshes[state.group]){sheetRecordsSorted=sheetRecords;lastSheetEye=null;upload(sheetMeshes[state.group],sheetRecords);}
+upload(rods,rodRecords);syncStats();}
+function syncStats(){const g=GROUPS[state.group];$('status').textContent=`${g.symbol} · #${g.id} · ${g.ops.length} operations\n${state.sceneCount.toLocaleString()} loaded instances · ${Math.round(state.period*100)} cm periods\n${state.safety?'Safe initial placement':'Free initial placement'} · ${state.representation==='slice'?'Solid '+state.volume+' / section':state.representation==='sheet'?'Full fundamental-face orbit':'3D motif orbit'}${state.sceneCount>20000?'\nHigh instance count: reduce radius if Quest performance drops':''}`;}
 function syncUI(){for(const [id,value] of Object.entries({group:state.group,motif:state.motif,volume:state.volume,representation:state.representation,family:state.family,pattern:state.pattern,coverage:state.coverage*100,period:state.period,radius:state.radius,fadeStart:state.fadeStart,occupancy:state.occupancy*100,sectionY:state.sectionY,fadeStyle:state.fadeStyle,quality:state.quality}))$(id).value=String(value);
 for(const k of ['safety','fadeViewer','grid','ground','animate','sliceFollow','exterior','scaleMotif'])$(k).checked=state[k];
-$('periodValue').textContent=state.period.toFixed(2)+' m';$('radiusValue').textContent=state.radius+' periods';$('fadeStartValue').textContent=state.fadeStart+' periods';$('occupancyValue').textContent=Math.round(state.occupancy*100)+'% of cell';$('sectionYValue').textContent=state.sectionY.toFixed(2)+' m';$('coverageValue').textContent=Math.round(state.coverage*100)+'%';$('coverageLabel').textContent=state.representation==='sheet'?'Wall opacity':'Section / exterior contrast';
-$('volumeRow').hidden=state.representation!=='slice';$('motifRow').hidden=state.representation!=='motif';$('occupancyRow').hidden=state.representation!=='motif';$('familyRow').hidden=state.representation!=='sheet';$('textureRow').hidden=state.representation!=='sheet';$('coverageRow').hidden=state.representation==='motif';$('sliceDepthRow').hidden=state.representation!=='slice';$('exteriorRow').hidden=state.representation!=='slice';$('animateRow').hidden=state.representation!=='motif';$('scaleMotifRow').hidden=state.representation!=='motif';$('sliceFollowRow').hidden=state.representation!=='slice';
+$('periodValue').textContent=state.period.toFixed(2)+' m';$('radiusValue').textContent=state.radius+' periods';$('fadeStartValue').textContent=state.fadeStart+' periods';$('occupancyValue').textContent=Math.round(state.occupancy*100)+'% of cell';$('sectionYValue').textContent=state.sectionY.toFixed(2)+' m';$('coverageValue').textContent=Math.round(state.coverage*100)+'%';$('coverageLabel').textContent='Wall opacity';
+$('volumeRow').hidden=state.representation!=='slice';$('motifRow').hidden=state.representation!=='motif';$('occupancyRow').hidden=state.representation!=='motif';$('familyRow').hidden=state.representation!=='sheet';$('textureRow').hidden=state.representation!=='sheet';$('coverageRow').hidden=state.representation!=='sheet';$('sliceDepthRow').hidden=state.representation!=='slice';$('exteriorRow').hidden=state.representation!=='slice';$('animateRow').hidden=state.representation!=='motif';$('scaleMotifRow').hidden=state.representation!=='motif';$('sliceFollowRow').hidden=state.representation!=='slice';
 syncStats();}
 function setVal(k,v){if(k==='group'){changeGroup(+v);return;}
  if(k==='period'){
   v=clamp(Number(v),.10,2.5);if(!Number.isFinite(v))return;
   const old=state.period,head=trackHead||mt(player.x,player.y+1.64,player.z);
   const eye=[head[12],head[13],head[14]],ratio=v/old;
-  const originOld=state.origin.slice(),seedOld=state.seed.slice(12,15);
-  // Anchor the *current cell center* in physical space, NOT the eye itself.
-  // Scaling all distances and objects around the eye gave an almost identical
-  // perspective image at every period -- v0.5's apparent broken slider.
-  // Keeping the local cell's center fixed makes cell size/motif scale visibly
-  // change while avoiding translation relative to a distant world origin.
-  const home=eye.map((x,i)=>Math.floor((x-originOld[i])/old));
-  const fixedCenter=home.map((c,i)=>originOld[i]+(c+.5)*old);
-  state.origin=fixedCenter.map((x,i)=>x-(home[i]+.5)*v);
-  const newSeed=seedOld.map((x,i)=>fixedCenter[i]+(x-fixedCenter[i])*ratio);
-  for(let i=0;i<3;i++){if(state.scaleMotif)for(let j=0;j<3;j++)state.seed[j*4+i]*=ratio;state.seed[12+i]=newSeed[i];}
+  // The CURRENT VIEWER COORDINATE is a fixed point of the scaling.
+  // No headset or locomotion transform is changed, including in immersive VR.
+  for(let i=0;i<3;i++){
+   state.origin[i]=eye[i]+ratio*(state.origin[i]-eye[i]);
+   state.seed[12+i]=eye[i]+ratio*(state.seed[12+i]-eye[i]);
+  }
+  if(state.scaleMotif)for(let i=0;i<3;i++)for(let j=0;j<3;j++)state.seed[j*4+i]*=ratio;
+  // Hold the stationary fade specimen anchored in physical space while scaling.
   state.period=v;state.dirty=true;syncUI();return;
  }
  if(k==='representation'&&v!=='motif')state.animate=false;
@@ -308,6 +364,7 @@ if(k==='motif'||k==='occupancy'||k==='safety')if(!grab)resetSeed();
 if(k==='representation'&&state.representation==='slice')fixedSectionPose=null;
 if(k==='sliceFollow'&&!v)fixedSectionPose=null;
 if(k==='sliceFollow'&&v)fixedSectionPose=null;
+ if(k==='fadeViewer'&&!v){const head=trackHead||mt(player.x,player.y+1.64,player.z);state.fadeAnchor=[head[12],head[13],head[14]];}
 if(k==='volume'){volumeDirty=true;notify('Solid texture · '+v);}
 // The baked volume is expressed in fractional coordinates and independent of cell period.
 if(k==='radius'){state.quality='custom';if(state.fadeStart>state.radius)state.fadeStart=state.radius;}
@@ -317,17 +374,17 @@ if(['period','radius','motif','grid','fadeViewer','representation','family','pat
 syncUI();}
 const quad=gl.createVertexArray();gl.bindVertexArray(quad);const vq=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vq);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,1,1,-1,-1,1,1,-1,1]),gl.STATIC_DRAW);gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);gl.bindVertexArray(null);
 const menuCanvas=document.createElement('canvas');menuCanvas.width=1200;menuCanvas.height=1520;const ctx=menuCanvas.getContext('2d');const menuTexture=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,menuTexture);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-const MENU=['Group','Representation','3D motif / solid material','Pattern pack','Pattern variant','Performance preset','Cell size','Crop radius','Full opacity through','Motif size','Sheet opacity / section contrast','Fade mode','Viewer-centered fade','Lattice guides','Floor comfort surface','Safe starting size','Scale motif with cell','Slice follows headset','Slice distance','Show solid exterior','Generator demonstration','Reference anchor','Close menu'];
+const MENU=['Group','Representation','3D motif / solid material','Pattern pack','Pattern variant','Performance preset','Cell size','Crop radius','Full opacity through','Motif size','Wall opacity','Fade mode','Viewer-centered fade','Lattice guides','Floor comfort surface','Safe starting size','Scale motif with cell','Slice follows headset','Slice distance','Show solid exterior','Generator demonstration','Reference anchor','Close menu'];
 const ANCHORS=[['volume center',[.5,.5,.5]],['face center',[.5,.5,0]],['cell corner',[0,0,0]],['edge midpoint',[.5,0,0]]];
 function menuValue(k){switch(k){case 0:return GROUPS[state.group].symbol;case 1:return state.representation;case 2:return state.representation==='slice'?state.volume:state.motif;
 case 3:return state.family;case 4:return String(state.pattern+1);case 5:return state.quality;case 6:return Math.round(state.period*100)+' cm';
 case 7:return state.radius+' cells';case 8:return state.fadeStart+' cells';case 9:return Math.round(state.occupancy*100)+'%';
-case 10:return Math.round(state.coverage*100)+'%';case 11:return state.fadeStyle;case 12:return state.fadeViewer?'ON':'OFF';
+case 10:return state.representation==='sheet'?Math.round(state.coverage*100)+'%':'n/a';case 11:return state.fadeStyle;case 12:return state.fadeViewer?'ON':'OFF';
 case 13:return state.grid?'ON':'OFF';case 14:return state.ground?'ON':'OFF';case 15:return state.safety?'ON':'OFF';
 case 16:return state.scaleMotif?'ON':'OFF';case 17:return state.sliceFollow?'ON':'OFF';case 18:return state.sectionY.toFixed(2)+' m';
 case 19:return state.exterior?'ON':'OFF';case 20:return state.animate&&state.representation==='motif'?'ON':'OFF';
 case 21:return ANCHORS[state.anchor][0];default:return '';}}
-function drawMenu(){ctx.clearRect(0,0,1200,1520);ctx.fillStyle='rgba(7,21,33,.96)';ctx.fillRect(0,0,1200,1520);ctx.strokeStyle='#528d9f';ctx.lineWidth=6;ctx.strokeRect(8,8,1184,1504);ctx.fillStyle='#85ebdf';ctx.font='bold 63px system-ui';ctx.fillText('SPACEGROUP ATLAS',58,110);ctx.fillStyle='#d4e5f4';ctx.font='35px system-ui';ctx.fillText('Room-scale symmetry lab  ·  0.6',60,166);
+function drawMenu(){ctx.clearRect(0,0,1200,1520);ctx.fillStyle='rgba(7,21,33,.96)';ctx.fillRect(0,0,1200,1520);ctx.strokeStyle='#528d9f';ctx.lineWidth=6;ctx.strokeRect(8,8,1184,1504);ctx.fillStyle='#85ebdf';ctx.font='bold 63px system-ui';ctx.fillText('SPACEGROUP ATLAS',58,110);ctx.fillStyle='#d4e5f4';ctx.font='35px system-ui';ctx.fillText('Room-scale symmetry lab  ·  0.7',60,166);
 MENU.forEach((title,i)=>{const y=222+i*52;ctx.fillStyle=i===state.menuRow?'rgba(55,154,165,.40)':'rgba(0,0,0,0)';ctx.fillRect(35,y-39,1130,48);ctx.fillStyle='#d7e8f8';ctx.font=i===state.menuRow?'bold 28px system-ui':'27px system-ui';ctx.fillText(title,63,y);ctx.fillStyle='#88ecdb';ctx.textAlign='right';ctx.fillText(menuValue(i),1123,y);ctx.textAlign='left';});ctx.font='30px system-ui';ctx.fillStyle='#aacbd4';ctx.fillText('Right stick: navigate / adjust    A: select    B: close',57,1480);
 gl.bindTexture(gl.TEXTURE_2D,menuTexture);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,menuCanvas);}
 function anchorFocus(){const [label,p]=ANCHORS[state.anchor];let target=[0,1.5,-1.45];if(trackHead){const dir=norm([-trackHead[8],0,-trackHead[10]]);target=[trackHead[12]+dir[0]*1.15,trackHead[13]-.15,trackHead[14]+dir[2]*1.15];}const desired=add(state.origin,scale(p,state.period));const d=sub(target,desired);state.origin=add(state.origin,d);state.seed=mm(mt(...d),state.seed);state.dirty=true;notify('Focus · '+label);}
@@ -340,10 +397,10 @@ function menuChange(direction=1){const k=state.menuRow;const cycle=(name,list)=>
  case 4:setVal('pattern',(state.pattern+direction+5)%5);break;
  case 5:cycle('quality',['safe','balanced','extended','custom']);break;
  case 6:setVal('period',clamp(Math.round((state.period+direction*.05)*20)/20,.1,2.5));break;
- case 7:setVal('radius',clamp(state.radius+direction,2,8));break;
+ case 7:setVal('radius',clamp(state.radius+direction,1,8));break;
  case 8:setVal('fadeStart',clamp(state.fadeStart+direction,0,state.radius));break;
  case 9:setVal('occupancy',clamp((Math.round(state.occupancy*100)+direction*2)/100,.05,.35));break;
- case 10:setVal('coverage',clamp(state.coverage+direction*.1,.1,1));break;
+ case 10:if(state.representation==='sheet')setVal('coverage',clamp(state.coverage+direction*.1,.1,1));break;
  case 11:cycle('fadeStyle',['contrast','off','dither','alpha','cut']);break;
  case 12:setVal('fadeViewer',!state.fadeViewer);break;
  case 13:setVal('grid',!state.grid);break;
@@ -360,11 +417,11 @@ function menuChange(direction=1){const k=state.menuRow;const cycle=(name,list)=>
 function drawQuad(shader,vao,vp,model,tex){gl.useProgram(shader);gl.uniformMatrix4fv(uiU.vp,false,vp);gl.uniformMatrix4fv(uiU.model,false,model);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,tex);gl.uniform1i(uiU.tex,0);gl.bindVertexArray(vao);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.disable(gl.CULL_FACE);gl.disable(gl.DEPTH_TEST);gl.depthMask(false);gl.drawArrays(gl.TRIANGLES,0,6);gl.depthMask(true);gl.enable(gl.DEPTH_TEST);gl.disable(gl.BLEND);}
 function setupMaterial(vp,head,mode){gl.useProgram(meshShader);
  gl.uniformMatrix4fv(mU.vp,false,vp);gl.uniform3f(mU.light,-.47,.81,.33);
- const c=state.fadeViewer?head.map((v,i)=>(v-state.origin[i])/state.period):[0,0,0];
+ const c=(state.fadeViewer?head:(state.fadeAnchor||state.origin)).map((v,i)=>(v-state.origin[i])/state.period);
  gl.uniform3fv(mU.viewer,c);gl.uniform3fv(mU.origin,state.origin);gl.uniform1f(mU.period,state.period);
  gl.uniform1f(mU.s0,state.fadeStart);gl.uniform1f(mU.s1,state.radius);
  gl.uniform1i(mU.mode,mode===undefined?(state.fadeStyle==='dither'?0:state.fadeStyle==='alpha'?1:state.fadeStyle==='cut'?2:state.fadeStyle==='contrast'?3:4):mode);
- gl.uniform1f(mU.cover,volumeThreshold);gl.uniform1i(mU.txt,0);gl.uniform1i(mU.fill,0);gl.uniform1i(mU.panelSym,0);
+ gl.uniform1f(mU.cover,volumeThreshold);gl.uniform1i(mU.txt,0);gl.uniform1i(mU.fill,0);gl.uniform1i(mU.panelSym,0);gl.uniform1i(mU.group,state.group);
  gl.activeTexture(gl.TEXTURE0);gl.uniform1i(mU.tex,0);gl.bindTexture(gl.TEXTURE_2D,texture.forest||null);
  gl.activeTexture(gl.TEXTURE1);gl.uniform1i(mU.volume,1);gl.bindTexture(gl.TEXTURE_3D,volumeTexture);
  gl.disable(gl.CULL_FACE);gl.enable(gl.DEPTH_TEST);
@@ -378,8 +435,12 @@ function drawOne(obj,seed,tex,textured,fill,motif){if(!obj?.instances)return;
 }
 let lastSheetEye=null;
 function drawMeshes(vp,head){if(state.representation==='sheet'&&sheetRecordsSorted.length>1){
- const needs=!lastSheetEye||len(sub(lastSheetEye,head))>.12;
- if(needs){sheetRecordsSorted.sort((a,b)=>{const pa=[a.m[12],a.m[13],a.m[14]],pb=[b.m[12],b.m[13],b.m[14]];return len(sub(pb,head))-len(sub(pa,head));});upload(panels,sheetRecordsSorted);lastSheetEye=head.slice();}}
+ const needs=!lastSheetEye||len(sub(lastSheetEye,head))>.10;
+ if(needs){sheetRecordsSorted.sort((a,b)=>{
+   const pa=[a.m[12]+state.period*.5,a.m[13]+state.period*.5,a.m[14]+state.period*.5];
+   const pb=[b.m[12]+state.period*.5,b.m[13]+state.period*.5,b.m[14]+state.period*.5];
+   return len(sub(pb,head))-len(sub(pa,head));
+ });upload(sheetMeshes[state.group],sheetRecordsSorted);lastSheetEye=head.slice();}}
  setupMaterial(vp,head);
  drawOne(rods,mid(),null,false,false,false);
  if(state.representation==='motif'){
@@ -387,14 +448,14 @@ function drawMeshes(vp,head){if(state.representation==='sheet'&&sheetRecordsSort
   drawOne(motifs[state.motif],state.seed,texture.forest,true,false,true);
   if(state.fadeStyle==='alpha'){gl.depthMask(true);gl.disable(gl.BLEND);}
  }else if(state.representation==='sheet'){
-  // Render the original Kenney PNG on the actual orbit of each full cell face.
-  // This preserves the image's full resolution and native alpha, unlike the
-  // obsolete 48^3 sampled field (which also failed texture upload in v0.5).
-  const sym=[0,2,1,4,4,4,3,4][state.group];
+  // Draw the Voronoi/Dirichlet fundamental-domain face network in every cell,
+  // including oblique internal faces, with continuous planar PNG coordinates.
+  const sym=0;
   gl.uniform1i(mU.panelSym,sym);
   gl.uniform1f(mU.cover,state.coverage);
-  gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.depthMask(false);
-  drawOne(panels,mid(),texture[state.family+state.pattern],true,2,true);
+  const solidWall=state.family==='opaque'&&state.coverage>=.999;
+  if(!solidWall){gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);gl.depthMask(false);}
+  drawOne(sheetMeshes[state.group],mid(),texture[state.family+state.pattern],true,2,true);
   gl.depthMask(true);gl.disable(gl.BLEND);
  }
  if(state.animate&&state.representation==='motif'&&!grab)drawGeneratorDemonstration(vp,head);
@@ -413,7 +474,7 @@ function drawSection(vp){if(state.representation!=='slice'||!volumeTexture)retur
  const size=clamp(state.period*2.2,.6,4.5);
  const plane=mm(frame,mm(mt(0,0,-state.sectionY),ms(size,size,1)));
  gl.useProgram(sliceShader);gl.uniformMatrix4fv(sU.vp,false,vp);gl.uniformMatrix4fv(sU.plane,false,plane);
- gl.uniform3fv(sU.origin,state.origin);gl.uniform1f(sU.period,state.period);gl.uniform1f(sU.cover,volumeThreshold);
+ gl.uniform3fv(sU.origin,state.origin);gl.uniform1f(sU.period,state.period);
  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_3D,volumeTexture);gl.uniform1i(sU.volume,1);
  gl.bindVertexArray(quad);gl.disable(gl.CULL_FACE);gl.enable(gl.DEPTH_TEST);gl.depthMask(true);
  gl.drawArrays(gl.TRIANGLES,0,6);
@@ -425,7 +486,7 @@ function drawVolumeExterior(vp,head){
  const box=mm(mt(base[0]+.5*L,base[1]+.5*L,base[2]+.5*L),ms(L));
  gl.uniformMatrix4fv(eU.vp,false,vp);gl.uniformMatrix4fv(eU.box,false,box);
  gl.uniform3fv(eU.origin,base);gl.uniform3f(eU.eye,head[12],head[13],head[14]);
- gl.uniform1f(eU.period,L);gl.uniform1f(eU.threshold,volumeThreshold);
+ gl.uniform1f(eU.period,L);
  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_3D,volumeTexture);gl.uniform1i(eU.volume,1);
  gl.disable(gl.BLEND);gl.enable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);
  gl.bindVertexArray(exteriorMesh.vao);gl.drawElements(gl.TRIANGLES,exteriorMesh.count,gl.UNSIGNED_SHORT,0);
@@ -437,8 +498,8 @@ function detR(r){return r[0]*(r[4]*r[8]-r[5]*r[7])-r[1]*(r[3]*r[8]-r[5]*r[6])+r[
 function configureFloor(){floorSource=ref?.boundsGeometry?.length?'bounded-floor reference':'local-floor reference';}
 function drawGround(vp,head){if(!state.ground)return;
  const headPos=head||[player.x,player.y+1.64,player.z];
- const y=session?player.y-.018:player.y-.018;
- const far=Math.max(10,state.period*(state.radius+3)*2.2),near=far*.67;
+ const y=-.018; // Local-floor coordinates: never track joystick flying or crouching.
+ const far=Math.max(8,state.period*(state.radius+3)*2.6),near=far*.90;
  const plane=mm(mt(headPos[0],y,headPos[2]),mm(rx(-PI/2),ms(far*1.55,far*1.55,1)));
  gl.useProgram(floorShader);gl.uniformMatrix4fv(fU.vp,false,vp);
  gl.uniformMatrix4fv(fU.model,false,plane);gl.uniform3f(fU.center,headPos[0],y,headPos[2]);
@@ -521,5 +582,5 @@ for(const k of ['safety','fadeViewer','grid','ground','animate','sliceFollow','e
 window.addEventListener('keydown',e=>{if(e.target instanceof HTMLInputElement||e.target instanceof HTMLSelectElement)return;keys.add(e.code);if(e.repeat)return;if(e.code==='BracketRight')changeGroup(state.group+1);if(e.code==='BracketLeft')changeGroup(state.group-1);if(e.code==='KeyM'){const a=['archer','target','tree'];setVal('motif',a[(a.indexOf(state.motif)+1)%a.length]);}if(e.code==='KeyH'){const head=mm(mt(player.x,player.y+1.64,player.z),ry(player.yaw));openMenu(head);}if(e.code==='KeyC'||e.code==='KeyV'){const h=mm(mt(player.x,player.y+1.64,player.z),ry(player.yaw));toggleGrab([h[12],h[13],h[14]],norm([-h[8],0,-h[10]]),h);}});
 window.addEventListener('keyup',e=>keys.delete(e.code));cv.addEventListener('pointerdown',e=>{drag=true;dragLast=[e.clientX,e.clientY];cv.setPointerCapture(e.pointerId);});cv.addEventListener('pointermove',e=>{if(!drag)return;player.yaw-=(e.clientX-dragLast[0])*.005;player.pitch=clamp(player.pitch-(e.clientY-dragLast[1])*.005,-1.25,1.25);dragLast=[e.clientX,e.clientY];});cv.addEventListener('pointerup',()=>drag=false);}
 try{syncUI();loadAssets().catch(error);requestAnimationFrame(desktop);}catch(e){error(e);}
-window.SPACEGROUP_DEBUG={GROUPS,state,closure,compose,key,cellOp,point,mm,resetAll,regen,changeGroup,canonicalKey,defaultSize,detR,get floorSource(){return floorSource},get volumeTexture(){return volumeTexture},getGLError(){return gl.getError()},get materialNames(){return Object.keys(solidVolumes)},get canonicalCache(){return canonicalCache},get sheetCount(){return panels.instances},get sheetTexture(){return texture[state.family+state.pattern]||null},setVal,render};
+window.SPACEGROUP_DEBUG={GROUPS,state,closure,compose,key,cellOp,point,mm,resetAll,regen,changeGroup,canonicalKey,defaultSize,detR,get floorSource(){return floorSource},get volumeTexture(){return volumeTexture},getGLError(){return gl.getError()},get materialNames(){return Object.keys(solidVolumes)},get canonicalCache(){return canonicalCache},get faceStats(){return window.SPACEGROUP_FUNDAMENTAL_FACES.map(x=>({facets:x.facets,triangles:x.i.length/3}))},get sheetCount(){return sheetMeshes[state.group]?.instances||0},get sheetTexture(){return texture[state.family+state.pattern]||null},setVal,render};
 })();

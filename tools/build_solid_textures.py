@@ -1,7 +1,7 @@
 """Generate reproducible, *adapted* RGB+A solid fields for Spacegroup Atlas.
 Original user-supplied .blend shader graphs cannot be faithfully evaluated without Blender.
 These self-contained 3D volume studies reproduce broad grain/banding design, NOT original node shaders.
-Output is contiguous z,y,x RGBA8 voxels in a periodic 64^3 cell; alpha encodes morphology.
+Output is contiguous z,y,x RGBA8 voxels in a periodic 128^3 cell; alpha encodes morphology.
 """
 from pathlib import Path
 import numpy as np
@@ -9,7 +9,7 @@ from scipy.ndimage import gaussian_filter
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT=Path(__file__).resolve().parent.parent
-N=64
+N=128
 rng=np.random.default_rng(860241)
 z,y,x=np.mgrid[:N,:N,:N].astype(np.float32)/N
 # every field is periodic with wrapped noise on the torus, including warp channels

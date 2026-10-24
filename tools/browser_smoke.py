@@ -41,7 +41,7 @@ with sync_playwright() as pw:
     html = re.sub(r'<script src="[^\"]+"(?: defer)?></script>', '', html)
     page.goto('about:blank')
     page.set_content(html)
-    for js in ['assets-inline.js', 'volume-inline.js', 'main.js']:
+    for js in ['assets-inline.js', 'volume-inline.js', 'fundamental-faces.js', 'main.js']:
         page.add_script_tag(content=(ROOT/js).read_text())
     page.wait_for_function('window.SPACEGROUP_DEBUG && window.SPACEGROUP_DEBUG.materialNames.length === 3')
     page.wait_for_timeout(650)
@@ -56,6 +56,7 @@ with sync_playwright() as pw:
     diff = difference(initial,large)
     assert diff > 3, f'Cell-size control visually inert (MAE {diff:.2f})'
 
+    page.locator('#radius').evaluate('(e)=>{e.value="3";e.dispatchEvent(new Event("input",{bubbles:true}));}')
     page.select_option('#representation','sheet')
     page.wait_for_timeout(400)
     solid = screenshot_roi(page,'walls_opaque')
@@ -66,10 +67,10 @@ with sync_playwright() as pw:
     assert diff2 > 7, f'Line and opaque walls look identical (MAE {diff2:.2f})'
 
     page.select_option('#representation','slice')
-    page.wait_for_timeout(1300)
+    page.wait_for_timeout(2500)
     for material in ['oak','walnut','strata']:
         page.select_option('#volume',material)
-        page.wait_for_timeout(1100)
+        page.wait_for_timeout(2500)
         im = screenshot_roi(page,'solid_'+material)
         assert max(im.getextrema()[i][1] for i in range(3)) > 80, 'The 3D section rendered black'
     page.locator('#exterior').set_checked(True)

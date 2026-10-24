@@ -8,8 +8,8 @@ const fakeGL=new Proxy({}, {get(t,k){if(k==='getShaderParameter'||k==='getProgra
 function element(id){return elements[id]||(elements[id]={id,style:{},textContent:'',value:'',checked:false,children:[],width:1400,height:900,addEventListener(type,handler){listeners[id+':'+type]=handler;},appendChild(child){this.children.push(child);},getContext(kind){return kind==='2d'?ctx2d:fakeGL;},set hidden(v){this._hidden=v;},classList:{add:noop,remove:noop}});}
 const document={getElementById:element,createElement(tag){if(tag==='canvas')return {width:1200,height:1400,getContext:()=>ctx2d};return element('created-'+Math.random());}};
 class FakeImage{constructor(){this.naturalWidth=8;this.naturalHeight=8;this.dataset={};}set src(v){this._src=v;Promise.resolve().then(()=>this.onload&&this.onload());}}
-const sandbox={window:{addEventListener:noop},location:{protocol:'file:'},atob:s=>Buffer.from(s,'base64').toString('binary'),document,console,Math,Float32Array,Uint16Array,Int32Array,Array,Set,Map,performance:{now:()=>1000},innerWidth:1400,innerHeight:900,devicePixelRatio:1,navigator:{onLine:false},requestAnimationFrame:noop,Image:FakeImage,HTMLInputElement:class{},HTMLSelectElement:class{},fetch:async u=>{const b=fs.readFileSync(path.join(ROOT,u));return {arrayBuffer:async()=>b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength)}}};
-vm.createContext(sandbox);vm.runInContext(fs.readFileSync(path.join(ROOT,'assets-inline.js'),'utf8'),sandbox,{timeout:30000});vm.runInContext(fs.readFileSync(path.join(ROOT,'volume-inline.js'),'utf8'),sandbox,{timeout:30000});vm.runInContext(fs.readFileSync(path.join(ROOT,'main.js'),'utf8'),sandbox,{timeout:30000});
+const sandbox={window:{addEventListener:noop},location:{protocol:'file:'},atob:s=>Buffer.from(s,'base64').toString('binary'),document,console,Math,Float32Array,Uint16Array,Int32Array,Array,Set,Map,performance:{now:()=>1000},innerWidth:1400,innerHeight:900,devicePixelRatio:1,navigator:{onLine:false},Blob,Response,DecompressionStream,requestAnimationFrame:noop,Image:FakeImage,HTMLInputElement:class{},HTMLSelectElement:class{},fetch:async u=>{const b=fs.readFileSync(path.join(ROOT,u));return {arrayBuffer:async()=>b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength)}}};
+vm.createContext(sandbox);vm.runInContext(fs.readFileSync(path.join(ROOT,'assets-inline.js'),'utf8'),sandbox,{timeout:30000});vm.runInContext(fs.readFileSync(path.join(ROOT,'volume-inline.js'),'utf8'),sandbox,{timeout:30000});vm.runInContext(fs.readFileSync(path.join(ROOT,'fundamental-faces.js'),'utf8'),sandbox,{timeout:30000});vm.runInContext(fs.readFileSync(path.join(ROOT,'main.js'),'utf8'),sandbox,{timeout:30000});
 setTimeout(()=>{
  try{
  const D=sandbox.window.SPACEGROUP_DEBUG;assert(D,'Debug missing');assert.strictEqual(elements.group.children.length,8,'Dropdown was not populated before graphics initialized');D.regen();
@@ -33,7 +33,7 @@ setTimeout(()=>{
  D.state.representation='sheet';D.state.dirty=true;D.regen();const fullSheets=D.sheetCount;assert(fullSheets>0&&fullSheets<D.state.radius**3*20,'Sheet dedup broken');assert(D.sheetTexture,'Original Kenney 2D texture not loaded');
  // Voxel centers are permuted exactly by our signed-coordinate crystal operations,
  // including quarter-cell screw shifts. Check field equivariance at representative sites.
- function checkVolumeSymmetry(g,N=64){const V=lastVolumeData;assert(V&&V.length===N**3*4);
+ function checkVolumeSymmetry(g,N=128){const V=lastVolumeData;assert(V&&V.length===N**3*4);
   const at=(i,j,k)=>{i=(i+N)%N;j=(j+N)%N;k=(k+N)%N;return 4*(i+N*(j+N*k));};
   const m=x=>((x%1)+1)%1;
   for(const o of g.ops)for(const [i,j,k] of [[4,7,11],[15,9,30],[37,2,1],[23,18,44],[41,28,14]]){
@@ -46,17 +46,16 @@ setTimeout(()=>{
  D.state.representation='slice';D.regen();checkVolumeSymmetry(D.GROUPS[7]);
  D.changeGroup(4);D.regen();checkVolumeSymmetry(D.GROUPS[4]);assert(D.volumeTexture,'3D volume texture not built');
  for(const mat of ['oak','walnut','strata']){D.setVal('volume',mat);D.regen();checkVolumeSymmetry(D.GROUPS[4]);assert(D.materialNames.includes(mat),'Missing source solid '+mat);}checkVolumeSymmetry(D.GROUPS[4]);assert.strictEqual(D.state.sceneCount,0,'Slice mode should not draw discrete motifs');
- // Scale around the cell center near the observer, not around the eye.
- // Eye anchoring caused an exactly scale-invariant perspective (broken slider).
+ // Exact eye-centered scaling fixes the user's fractional coordinate
+ // while keeping the physical tracked headset position unchanged.
  const h=[0,1.64,0],oldPeriod=D.state.period,oldOrigin=D.state.origin.slice();
- const home=h.map((x,i)=>Math.floor((x-oldOrigin[i])/oldPeriod));
- const centerBefore=home.map((c,i)=>oldOrigin[i]+(c+.5)*oldPeriod);
  const fractionalBefore=h.map((x,i)=>(x-oldOrigin[i])/oldPeriod);
  D.setVal('period',1.25);
- const centerAfter=home.map((c,i)=>D.state.origin[i]+(c+.5)*D.state.period);
  const fractionalAfter=h.map((x,i)=>(x-D.state.origin[i])/D.state.period);
- for(let i=0;i<3;i++)assert(Math.abs(centerBefore[i]-centerAfter[i])<1e-6,'Scaling moved current cell center');
- assert(fractionalAfter.some((x,i)=>Math.abs(x-fractionalBefore[i])>.03),'Scaling is still eye-centered / visually static');
+ for(let i=0;i<3;i++)assert(Math.abs(fractionalAfter[i]-fractionalBefore[i])<1e-6,'Current viewer fractional cell coordinate moved');
+ assert.strictEqual(D.state.scaleMotif,false,'Motif must keep physical size by default so period changes are visible');
+ D.setVal('radius',1);assert.strictEqual(D.state.radius,1,'One-period crop should be selectable');
+ assert(D.faceStats[7].facets>70,'Cubic group missing internal fundamental faces');
  // All three modes can be rendered through the same fake GPU API, with toggles independent.
  const VP=new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);
  D.setVal('ground',true);D.render(VP,h);
@@ -65,6 +64,6 @@ setTimeout(()=>{
  D.setVal('representation','motif');D.regen();D.render(VP,h);
  assert.strictEqual(D.state.exterior,true,'Exterior toggle should persist across representation switches');
  
- console.log('OK: v0.6 8 group closures; full crop',fullCopies,'copies; tiled sheets',fullSheets,'; exact group field tests for cubic and screw');
+ console.log('OK: v0.7 8 group closures; full crop',fullCopies,'copies; tiled sheets',fullSheets,'; exact group field tests for cubic and screw');
  }catch(err){console.error('FAILED',err);process.exitCode=1;}
-},500);
+},2200);
