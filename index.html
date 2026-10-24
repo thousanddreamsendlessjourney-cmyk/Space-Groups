@@ -2,16 +2,22 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#08111d"><title>Spacegroup Atlas · Symmetry Lab 0.7</title>
-<link rel="stylesheet" href="style.css?v=0.7">
+<meta name="theme-color" content="#08111d"><title>Spacegroup Atlas · Symmetry Lab 0.8</title>
+<link rel="stylesheet" href="style.css?v=0.8">
 </head>
 <body>
 <canvas id="scene" aria-label="Interactive symmetry laboratory"></canvas>
 <section id="panel" aria-label="Laboratory controls">
-  <header><div class="eyebrow">QUEST 3 · WEBXR</div><h1>SPACEGROUP <em>ATLAS</em></h1><div class="version">SYMMETRY LAB · VERSION 0.7</div></header>
+  <header><div class="eyebrow">QUEST 3 · WEBXR</div><h1>SPACEGROUP <em>ATLAS</em></h1><div class="version">SYMMETRY LAB · VERSION 0.8</div></header>
   <div class="scroll">
-    <p class="info">Exact symmetry orbits, translucent lattice walls, and a headset-controlled section through oak, walnut, or mineral solids.</p>
-    <div class="field"><label for="group">Space group</label><select id="group"></select></div>
+    <p class="info">All 230 crystallographic space groups, organized by crystal system. A cell scale changes lattice geometry; motif dimensions and tracked floor height remain physically fixed.</p>
+    <div class="field"><label for="crystalSystem">Crystal system</label><select id="crystalSystem"><option value="all">All seven systems</option></select></div>
+    <div class="field"><label for="pointGroup">Point group</label><select id="pointGroup"><option value="all">All point groups</option></select></div>
+    <div class="field"><label for="groupSearch">Search number, symbol, or Hall notation</label><input id="groupSearch" type="search" placeholder="e.g. 225, P4, F m -3 m, -P" autocomplete="off"><small id="groupResultCount">230 groups</small></div>
+    <div class="field"><label for="group">Space group · complete 230</label><select id="group" size="1"></select></div>
+    <div class="field"><div id="groupDetails" class="group-details" aria-live="polite">Crystal system · Point group · Bravais centering</div></div>
+    <div class="field"><label for="groupFeatured">Quick jump to familiar groups</label><select id="groupFeatured"><option value="">Choose a featured group…</option>
+<option value="1">#1 P1 · translations</option><option value="2">#2 P-1 · inversion</option><option value="6">#6 Pm · mirror</option><option value="14">#14 P21/c · monoclinic</option><option value="47">#47 Pmmm</option><option value="62">#62 Pnma</option><option value="75">#75 P4</option><option value="76">#76 P41 · screw</option><option value="99">#99 P4mm</option><option value="123">#123 P4/mmm</option><option value="143">#143 P3</option><option value="146">#146 R3 · rhombohedral centering</option><option value="168">#168 P6</option><option value="194">#194 P63/mmc</option><option value="221">#221 Pm-3m</option><option value="225">#225 Fm-3m</option><option value="229">#229 Im-3m</option><option value="230">#230 Ia-3d</option></select></div>
     <div class="field"><label for="representation">Representation</label><select id="representation"><option value="motif">Contained 3D motif orbit</option><option value="sheet">2D fill · fundamental-face orbit</option><option value="slice">3D fill · cross-section or volume exterior</option></select></div>
     <div class="field" id="motifRow"><label for="motif">3D motif</label><select id="motif"><option value="archer">Archer · asymmetric</option><option value="target">Target · bilateral</option><option value="tree">Tree · near axial</option></select></div>
     <div class="field" id="volumeRow"><label for="volume">3D solid material · adapted</label><select id="volume"><option value="oak">Oak · bent growth rings</option><option value="walnut">Walnut · dark burl / knots</option><option value="strata">Strata · intersecting stone layers</option></select></div>
@@ -19,23 +25,24 @@
     <div class="field" id="textureRow"><label for="pattern">Texture variant</label><select id="pattern"><option value="0">Pattern A</option><option value="1">Pattern B</option><option value="2">Pattern C</option><option value="3">Pattern D</option><option value="4">Pattern E</option></select></div>
     <div class="range" id="coverageRow"><label for="coverage"><span id="coverageLabel">Wall opacity</span> <b id="coverageValue">80%</b></label><input id="coverage" type="range" min="2" max="100" step="2" value="22"></div>
     <div class="field"><label for="quality">Render-distance preset</label><select id="quality"><option value="safe">Quest safe · recommended</option><option value="balanced">Balanced · more cells</option><option value="extended">Extended · performance test</option><option value="custom">Custom crop radius</option></select></div>
-    <div class="range"><label for="period">Cell period <b id="periodValue">0.70 m</b></label><input id="period" type="range" min="0.10" max="2.50" step="0.05" value="0.70"></div>
+    <div class="range"><label for="period">Cell period <b id="periodValue">0.80 m</b></label><input id="period" type="range" min="0.10" max="2.50" step="0.05" value="0.80"></div>
     <div class="range"><label for="radius">Fade cutoff / crop extent <b id="radiusValue">5 periods</b></label><input id="radius" type="range" min="1" max="8" step="1" value="4"></div>
     <div class="range"><label for="fadeStart">Fully visible through <b id="fadeStartValue">4 periods</b></label><input id="fadeStart" type="range" min="0" max="8" step="1" value="3"></div>
-    <div class="range" id="occupancyRow"><label for="occupancy">Motif size <b id="occupancyValue">25% of cell</b></label><input id="occupancy" type="range" min="5" max="35" step="1" value="25"></div>
-    <div class="switches"><label><input id="safety" type="checkbox" checked> Safe starting placement (off: symmetry-axis seed)</label><label><input id="fadeViewer" type="checkbox"> Fade follows viewer</label><label><input id="grid" type="checkbox" checked> Show neutral-gray lattice</label><label><input id="ground" type="checkbox"> Comfort floor at tracked floor level</label><label id="animateRow"><input id="animate" type="checkbox"> Demonstrate generator (motifs only)</label><label id="sliceFollowRow"><input id="sliceFollow" type="checkbox" checked> Section follows headset</label><label id="exteriorRow"><input id="exterior" type="checkbox"> Show solid block exterior (one cell)</label><label id="scaleMotifRow"><input id="scaleMotif" type="checkbox" checked> Scale motif with cell (similarity scaling)</label></div>
+    <div class="range" id="occupancyRow"><label for="occupancy">Motif size · independent <b id="occupancyValue">16 cm</b></label><input id="occupancy" type="range" min="3" max="75" step="1" value="16"></div>
+    <div class="switches"><label><input id="safety" type="checkbox" checked> Safe starting placement (off: symmetry-axis seed)</label><label><input id="fadeViewer" type="checkbox"> Fade follows viewer</label><label><input id="grid" type="checkbox" checked> Show neutral-gray lattice</label><label><input id="ground" type="checkbox"> Comfort floor at tracked floor level</label><label id="animateRow"><input id="animate" type="checkbox"> Demonstrate generator (motifs only)</label><label id="sliceFollowRow"><input id="sliceFollow" type="checkbox" checked> Section follows headset</label><label id="exteriorRow"><input id="exterior" type="checkbox"> Show solid block exterior (one cell)</label></div>
     <div class="range" id="sliceDepthRow"><label for="sectionY">Section depth ahead of viewer <b id="sectionYValue">1.2 m</b></label><input id="sectionY" type="range" min="0.25" max="3.0" step="0.05" value="1.2"></div>
     <div class="field"><label for="fadeStyle">Fade rendering</label><select id="fadeStyle"><option value="contrast">Opaque contrast fade (default)</option><option value="off">No fade within crop</option><option value="dither">Screen-door (experimental)</option><option value="alpha">Alpha blending (experimental)</option><option value="cut">Hard cutoff (reference)</option></select></div>
     <div class="actions"><button id="reset" class="secondary">Reset seed + view</button><button id="enter" class="primary">ENTER IMMERSIVE VR</button></div>
     <div id="status" role="status">Loading geometries…</div>
-    <p class="fine">Desktop: WASD move, mouse drag to look, Q/E turn, R/F move vertically, C grab/V release. Quest: left stick moves, right stick turns/flies, left trigger carries in motif mode; B toggles the in-world menu. The comfort floor follows horizontally at the tracked floor height and never restricts movement.</p>
+    <p class="fine">Desktop: WASD move, mouse drag to look, Q/E turn, R/F move vertically, C grab/V release. Quest: left stick moves, right stick turns/flies, left trigger carries in motif mode; B toggles the in-world menu. Cell scaling keeps the tracked floor and viewer fixed; motif size is a separate physical measurement. In VR, the menu has a crystal-system row followed by a within-system group browser.</p>
     <p class="fine">Meshes and textures by Kenney, CC0. No CDN or framework required. <a href="README.md" target="_blank">Instructions & mathematical notes</a></p>
   </div>
 </section>
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="error" role="alert" hidden></div>
-<script src="assets-inline.js?v=0.7"></script>
-<script src="volume-inline.js?v=0.7"></script>
-<script src="fundamental-faces.js?v=0.7"></script>
-<script src="main.js?v=0.7" defer></script>
+<script src="assets-inline.js?v=0.8"></script>
+<script src="volume-inline.js?v=0.8"></script>
+<script src="spacegroups-data.js?v=0.8"></script>
+<script src="fundamental-faces.js?v=0.8"></script>
+<script src="main.js?v=0.8" defer></script>
 </body></html>

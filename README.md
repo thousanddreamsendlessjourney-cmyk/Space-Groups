@@ -1,56 +1,73 @@
-# Spacegroup Atlas v0.7 — fundamental-domain faces, solid detail, scaling and comfort repairs
+# Spacegroup Atlas v0.8 — all 230 space groups and independent physical scale
 
-WebGL2 / WebXR application for Quest 3 and desktop. Replaces v0.6 completely, including the HTML, JavaScript, and volume assets. No external CDNs, Blender add-ons, npm dependencies, or server-side code.
+A browser-based WebGL2/WebXR space-group laboratory for Meta Quest 3 and desktop. All 230 three-dimensional crystallographic space groups are supported, with their actual conventional-cell rotational and fractional-translational operations. No Blender, Node, CDN, npm, or login is required at runtime.
 
-## Install on GitHub Pages
+## Install
 
-Unzip `Spacegroup_Atlas_Quest3_v0.7.zip`, upload the contents to the **root** of your GitHub Pages repository, and overwrite v0.6 files. Keep `assets/` beside `index.html`. **Upload `fundamental-faces.js` as well**—it is new and required. Hard-refresh the Quest Browser after deployment. You can also open `index.html` locally on desktop because its assets are embedded as an offline fallback.
+Extract `Spacegroup_Atlas_Quest3_v0.8.zip` to the **root** of the existing GitHub Pages repository, replacing v0.7. Preserve the directory structure, particularly:
 
-## Changes since v0.6
+- `index.html`, `style.css`, `main.js`
+- `spacegroups-data.js` — complete 230-group operation catalog; **new, required**
+- `fundamental-faces.js` — the geometric face data for **all 230**; **required**
+- `assets-inline.js`, `volume-inline.js`, and the `assets/` directory.
 
-### 2D Fill — full orbit of the fundamental-domain faces
+Hard-refresh Quest Browser after uploading; cache-busting URLs in `index.html` use v0.8.
 
-- Instead of just the three axis-aligned lattice walls, the build precomputes Dirichlet/Voronoi faces for the orbit of a generic point under all eight group definitions and nearby lattice translations. This adds the **interior oblique surfaces** for relevant groups. Cubic `Pm-3m` has 123 clipped face polygons per translation cell, versus only three exterior square faces for P1.
-- The three conventional translation-cell walls remain visible. Repeated copies are included over the selected crop radius, with proper native Kenney PNG colors and alpha. All planes remain passable.
-- Independent UV resets per panel were removed. 2D colors are now derived from continuous fractional coordinates folded under the selected group, so group-equivalent positions evaluate to the same pattern, avoiding many artificial joins. This texture-field construction is mathematically periodic, including screw/point operations at the sampled positions. Exact visual continuity can still differ at quotient folds; this is a *symmetry seam*, not a missing polygon.
-- Premultiplied PNG alpha and back-to-front transparent-cell sorting reduce black fringes, dark seams, and inconsistent layered composition.
-- Added `tools/build_fundamental_faces.py` to reproduce the geometry. It requires SciPy and NumPy **only if regenerating the data**, not when running the app.
+`index.html` can also be opened on desktop as a file; assets are included in inlined fallback bundles. GitHub Pages (HTTPS) is needed for Quest's immersive WebXR mode.
 
-### Cell period
+## What changed in v0.8
 
-- Scaling is now isotropic around the **current tracked viewer position**, which is fixed in physical space. The viewer's fractional coordinates in the lattice remain constant, while the actual cell dimensions change. The player/headset transform is untouched.
-- Because scaling **all** objects, distances, and the observer around the observer yields a mathematically identical perspective view, `Scale motif with cell` now defaults **OFF**: the model retains its physical size, and period changes become visually evident. Turning it on again intentionally restores similarity scaling. The floor grid (when enabled) also provides an absolute physical scale.
+### 1. Cell scale and motif size no longer act as the same control
 
-### 3D Fill
+**Cell lattice scale** (0.10–2.50 meters) changes the actual translation lengths and coordinates of the complete lattice. The corresponding conventional-cell basis is scaled isotropically; for noncubic systems, the three physical edge lengths may differ even when the reference scale is one meter.
 
-- Solid sources regenerated at **128³ RGBA8** (up from 64³, eight times as many voxels), with trilinear GPU interpolation. Oak, walnut, and stratified stone remain independently generated **adaptations**, not exact Blender-node bakes.
-- The previous section/exterior contrast control has been removed. Section and exterior now both use the **50% contrast setting** (`1.15` gain in the original adjustment curve) without a slider.
-- Volumes are compressed as `assets/volume_*.zlib` and decompressed with browser `DecompressionStream`, supported by contemporary Chromium/Quest Browser. Binary data is embedded as fallback for offline desktop use. The resulting GPU 3D textures are 8 MiB apiece; one is active at a time.
-- Group-symmetrized voxel-center values are generated with a fast union of the group's generators rather than testing all group elements against every voxel, preserving exact generator invariance at voxel centers.
+When this control changes, the program calculates the **center of the unit cell containing the current viewer**, holds that cell center fixed, and rescales crystal geometry around it. It does **not** modify the headset/player transform, tracked-floor height, or the motif's 3×3 scale/orientation matrix. The motif-size control has independent **centimeter** units; the old "Scale motif with cell" option has been removed. The generic initial seed location is allowed to move with its cell, but its physical diameter is unchanged. The *Safe starting placement* option can still clamp an excessively large seed upon re-placement, not while dragging the cell-size slider.
 
-### Controls, fade and floor
+The comfort floor is always drawn at **y = -0.018 m in the WebXR floor reference**, independent of the lattice's origin or scale. It follows the viewer horizontally only. (When the browser provides only a `local` rather than a `local-floor` reference, this is an approximation.)
 
-- **Safe starting placement** selects a generic location well away from high-symmetry axes/planes, and caps motif size using the nearest orbit-copy separation. Switching it off starts at a symmetry intersection, where overlaps are deliberately allowed. With P1 there are no nontrivial point-group collisions to avoid.
-- Fade cutoff now permits **1 period**. The default safe preset remains larger, but you can select custom radius 1 on desktop or Quest.
-- When `Fade follows viewer` is switched OFF, its center freezes exactly where the viewer is at that moment. There is **no teleport** and no jump to a distant reference cell. If the viewer walks beyond this stationary window afterward, objects can naturally fade away.
-- The tracked-floor comfort surface is now a clear, opaque horizontal plane, with a restrained real-world-scale gray grid and a distant soft edge. It remains anchored to floor reference height as you crouch or move vertically and follows the viewer only horizontally. It is **not** Quest's Guardian mesh.
-- No animation in either fill mode. The contained 3D motif mode retains its optional generator illustration.
+### 2. Browse all 230 space groups
 
-## Controls
+The complete dataset is generated from the standardized **Gemmi crystallographic space-group tables** ([reference](https://gemmi.readthedocs.io/en/latest/symmetry.html)), including centered cosets and screw/glide translations. The included catalog has all 230 international numbers, Hermann–Mauguin symbols, Hall symbols, one setting per number, 32 crystallographic point-group labels, crystal-system labels, Bravais centering types, and full finite operation lists. Default origin/setting choices follow Gemmi's tables; some numbers admit alternative conventional settings not included here.
 
-Desktop: WASD move; mouse drag look; Q/E yaw; R/F vertical; C grab / V release; [ / ] change group; M motif; H opens menu. Quest: left joystick moves, right joystick turns/flies or navigates the menu, left trigger carries/release a motif, B toggles menu.
+On desktop, use the **Crystal system** → **Point group** selectors, search by number, symbol, or Hall notation, then choose a group. A quick-jump list covers familiar educational examples including P1, P-1, Pm, P4, P4₁, Pmmm, Pm-3m, Fm-3m, and Ia-3d. The selected group's metadata and operation count appear beneath the selector.
 
-`Quest safe` remains the recommended performance preset, particularly for the full cubic group. The new internal faces introduce extra alpha overdraw. If Quest performance suffers, select radius 1–3 and reduce opacity; avoid 100% line opacity at radius 8 for `Pm-3m`.
+In Quest, open the menu (B) and use its first three rows: **Crystal system**, **Point group**, and **Group**. Right-stick left/right or A/X changes the selected value. Within a point group the Group row browses only its member space groups, avoiding a 230-item linear scroll.
 
-## Verification
+### 3. Correct noncubic lattice geometry
 
-- `node --check main.js` and `node tests/mathematical_checks.js`: pass (eight closures, screw symmetry, volume voxel-center symmetry, geometry face count, safe seed, eye-fixed scale and radius 1).
-- `python tools/test_shaders.py`: all five shader pairs compile/link in GLES3.
-- `xvfb-run -a python tools/browser_smoke.py`: visible motif scale differences at 0.60 vs 1.80 m; different images for the 2D line vs opaque textures; oak, walnut, strata slices and exterior nonblack; zero WebGL errors. Smoke test uses a moderate crop to avoid excessive rendering time on software OpenGL.
-- `xvfb-run -a python tools/regression_v07.py`: safe placement, scale anchor, fade locking, cutoff 1, interior face count, floor rendering, full 128³ cubic volume and zero WebGL errors.
+Each crystal system now uses an appropriate conventional-cell metric. Space-group operations are integer fractional-coordinate transformations 
 
-**Not tested:** headset stereoscopy, real Quest 3 frame rate, prolonged movement / frame-time stability. Please evaluate these in Quest Browser; automated desktop tests cannot substitute for them.
+`f ↦ R f + t`
 
-## License
+transformed into world coordinates with the actual cell basis `B`:
 
-Application code, procedural source models, Dirichlet-face generator and original solid-math adaptations: MIT. Existing Kenney mini-forest and pattern images: CC0, see `assets/LICENSE_KENNEY_*.txt`. User-supplied proprietary or third-party `.blend` assets are not embedded or redistributed.
+`X ↦ X_origin + B [R B⁻¹ (X-X_origin) + t + n]`.
+
+Hexagonal/trigonal operations therefore produce actual oblique hexagonal geometry instead of distorted rotations in a cubic coordinate system. Monoclinic, orthorhombic, and tetragonal conventional-cell proportions also differ from cubic. **Sample shapes are illustrative, not experimentally measured lattice constants.** The scalar cell-size slider scales the whole shape.
+
+### 4. All representations retain their roles
+
+- **Contained motif**: entire orbit of the original Kenney archer, target, or tree under the chosen space group. Motif size is independent of cell size. The instance generator drops copies that would be invisible beyond the selected fade cutoff, reducing GPU workload.
+- **2D Fill**: precomputed Dirichlet/Voronoi fundamental-domain faces, including oblique internal boundaries and cell-wall planes, for *all 230* groups. Full-resolution Kenney opaque and translucent line patterns, alpha, and several-cell crop settings are retained. The **geometry** follows the exact space-group orbit. **Caveat**: the decorative material texture is sampled by periodic fractional coordinate rather than being strictly symmetrized under *every* one of the 230 nontrivial groups. Geometric symmetry is exact; decorative linework under every group operation is not yet guaranteed. It remains especially important to distinguish texture discontinuities from real orbit boundaries.
+- **3D Fill**: one moving opaque section through an oak, walnut, or strata solid, or its optional complete one-cell exterior. The supplied 128³ material field is remapped onto a 144³ periodic voxel grid for compatibility with 1/3-, 1/4-, 1/6-, and 1/8-cell translations. That resampling does **not** add genuine texture detail; the underlying source remains 128³. Its volume is symmetry-averaged at discrete voxel positions through group generators, subject to voxel-interpolation approximation.
+
+Fill modes have no animation. The contained motif generator demonstration is experimental and not supported uniformly across all groups.
+
+### 5. Performance
+
+A high-order group can contain **up to 192 operations per primitive cell**. The Quest-safe preset automatically starts with a smaller extent for these groups (typically one or two periods), and the renderer avoids submitting copies outside the fade cutoff. You can expand the extent with the Balanced/Extended/Custom options; performance may drop sharply, especially in transparent 2D Fill mode. This tradeoff is explicitly selectable, not a change to the mathematical space group.
+
+## Validation and limitations
+
+- Full 230-group operation sets and generator closures checked against Gemmi, with each operation preserving its group's crystal-system metric.
+- Full 230 Dirichlet face datasets generated from Euclidean Voronoi construction in the corresponding noncubic cell and clipped to the conventional cell; generators in `tools/`.
+- `node --check main.js` and `python tools/test_shaders.py`: all five GLSL ES3 shader pairs compile and link in the available OpenGL ES3 driver.
+- `python tools/test_controls_mock.py`: all 230 groups load in the UI; search, crystal-system filtering, high-order group switching, fill geometry initialization, section upload, and separate physical motif/cell scale are checked in a DOM simulator with mocked WebGL drawing calls.
+
+**Not validated here:** real browser WebGL raster output (Chromium in this workspace refuses to initialize WebGL2), native Quest performance, headset stereo, or controller behavior on every space group. The mock browser tests are *control tests*, not visual rendering tests. Please verify on your Quest before relying on this as a final visual release.
+
+## Development and licenses
+
+`tools/build_group_database.py` regenerates `spacegroups-data.js` using [Gemmi](https://github.com/project-gemmi/gemmi). `tools/build_all_faces.py` regenerates the all-group clipped Dirichlet face dataset using Gemmi-generated group JSON, NumPy, and SciPy. These Python packages are **offline development dependencies only**; no Python executes in the browser.
+
+The application code, custom mathematical materials, and custom scripts are MIT licensed. Original Kenney mini-forest and pattern assets are CC0; see the `assets/LICENSE_*` files. The actual `.blend` files uploaded for texture research are **not** bundled or redistributed. The oak/walnut/strata fields remain independent procedural adaptations, not direct bakes of the Blender materials.
