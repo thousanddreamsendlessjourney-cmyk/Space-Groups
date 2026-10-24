@@ -4,7 +4,7 @@ const ROOT=path.resolve(__dirname,'..');
 const listeners={},elements={};
 const ctx2d={drawImage(){},getImageData(){return {data:new Uint8ClampedArray(Array.from({length:8*8*4},(_,i)=>i%4===3?255:(i*17)%256))}},fillRect(){},clearRect(){},strokeRect(){},fillText(){},strokeText(){},beginPath(){},fill(){},stroke(){},measureText(){return {width:10}},set fillStyle(v){},set font(v){},set lineWidth(v){},set strokeStyle(v){},set textAlign(v){}};
 const noop=()=>{};let lastVolumeData=null;
-const fakeGL=new Proxy({}, {get(t,k){if(k==='getShaderParameter'||k==='getProgramParameter')return ()=>true;if(k==='createProgram'||k==='createShader'||k==='createTexture'||k==='createVertexArray'||k==='createBuffer')return ()=>({});if(k==='getUniformLocation')return ()=>({});if(k==='texImage3D')return (...args)=>{lastVolumeData=args.at(-1);};if(k==='getShaderInfoLog'||k==='getProgramInfoLog')return ()=>'';if(typeof k==='string'&&k.toUpperCase()===k)return 10;return noop;}});
+const fakeGL=new Proxy({}, {get(t,k){if(k==='getShaderParameter'||k==='getProgramParameter')return ()=>true;if(k==='getError')return ()=>10;if(k==='createProgram'||k==='createShader'||k==='createTexture'||k==='createVertexArray'||k==='createBuffer')return ()=>({});if(k==='getUniformLocation')return ()=>({});if(k==='texImage3D')return (...args)=>{lastVolumeData=args.at(-1);};if(k==='getShaderInfoLog'||k==='getProgramInfoLog')return ()=>'';if(typeof k==='string'&&k.toUpperCase()===k)return 10;return noop;}});
 function element(id){return elements[id]||(elements[id]={id,style:{},textContent:'',value:'',checked:false,children:[],width:1400,height:900,addEventListener(type,handler){listeners[id+':'+type]=handler;},appendChild(child){this.children.push(child);},getContext(kind){return kind==='2d'?ctx2d:fakeGL;},set hidden(v){this._hidden=v;},classList:{add:noop,remove:noop}});}
 const document={getElementById:element,createElement(tag){if(tag==='canvas')return {width:1200,height:1400,getContext:()=>ctx2d};return element('created-'+Math.random());}};
 class FakeImage{constructor(){this.naturalWidth=8;this.naturalHeight=8;this.dataset={};}set src(v){this._src=v;Promise.resolve().then(()=>this.onload&&this.onload());}}
@@ -30,7 +30,7 @@ setTimeout(()=>{
  }
  // Compare full-cubic crop with old implementation's capped radius.
  D.changeGroup(7);D.regen();const fullCopies=D.state.instances.length;assert(fullCopies>5000,'Full cubic instances incorrectly cropped at Quest-safe radius');
- D.state.representation='sheet';D.state.dirty=true;D.regen();const fullSheets=D.sheetCount;assert(fullSheets>0&&fullSheets<D.state.radius**3*20,'Sheet dedup broken');assert(D.sheetTexture,'Kenney-derived sheet material not built');
+ D.state.representation='sheet';D.state.dirty=true;D.regen();const fullSheets=D.sheetCount;assert(fullSheets>0&&fullSheets<D.state.radius**3*20,'Sheet dedup broken');assert(D.sheetTexture,'Original Kenney 2D texture not loaded');
  // Voxel centers are permuted exactly by our signed-coordinate crystal operations,
  // including quarter-cell screw shifts. Check field equivariance at representative sites.
  function checkVolumeSymmetry(g,N=64){const V=lastVolumeData;assert(V&&V.length===N**3*4);
@@ -46,11 +46,17 @@ setTimeout(()=>{
  D.state.representation='slice';D.regen();checkVolumeSymmetry(D.GROUPS[7]);
  D.changeGroup(4);D.regen();checkVolumeSymmetry(D.GROUPS[4]);assert(D.volumeTexture,'3D volume texture not built');
  for(const mat of ['oak','walnut','strata']){D.setVal('volume',mat);D.regen();checkVolumeSymmetry(D.GROUPS[4]);assert(D.materialNames.includes(mat),'Missing source solid '+mat);}checkVolumeSymmetry(D.GROUPS[4]);assert.strictEqual(D.state.sceneCount,0,'Slice mode should not draw discrete motifs');
- // Scale around the observer: fractional viewer position must stay constant.
- const h=[0,1.64,0],before=h.map((x,i)=>(x-D.state.origin[i])/D.state.period);
+ // Scale around the cell center near the observer, not around the eye.
+ // Eye anchoring caused an exactly scale-invariant perspective (broken slider).
+ const h=[0,1.64,0],oldPeriod=D.state.period,oldOrigin=D.state.origin.slice();
+ const home=h.map((x,i)=>Math.floor((x-oldOrigin[i])/oldPeriod));
+ const centerBefore=home.map((c,i)=>oldOrigin[i]+(c+.5)*oldPeriod);
+ const fractionalBefore=h.map((x,i)=>(x-oldOrigin[i])/oldPeriod);
  D.setVal('period',1.25);
- const after=h.map((x,i)=>(x-D.state.origin[i])/D.state.period);
- for(let i=0;i<3;i++)assert(Math.abs(before[i]-after[i])<1e-6,'Cell scaling moved the observer through cells');
+ const centerAfter=home.map((c,i)=>D.state.origin[i]+(c+.5)*D.state.period);
+ const fractionalAfter=h.map((x,i)=>(x-D.state.origin[i])/D.state.period);
+ for(let i=0;i<3;i++)assert(Math.abs(centerBefore[i]-centerAfter[i])<1e-6,'Scaling moved current cell center');
+ assert(fractionalAfter.some((x,i)=>Math.abs(x-fractionalBefore[i])>.03),'Scaling is still eye-centered / visually static');
  // All three modes can be rendered through the same fake GPU API, with toggles independent.
  const VP=new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);
  D.setVal('ground',true);D.render(VP,h);
@@ -59,6 +65,6 @@ setTimeout(()=>{
  D.setVal('representation','motif');D.regen();D.render(VP,h);
  assert.strictEqual(D.state.exterior,true,'Exterior toggle should persist across representation switches');
  
- console.log('OK: v0.5 8 group closures; full crop',fullCopies,'copies; tiled sheets',fullSheets,'; exact group field tests for cubic and screw');
+ console.log('OK: v0.6 8 group closures; full crop',fullCopies,'copies; tiled sheets',fullSheets,'; exact group field tests for cubic and screw');
  }catch(err){console.error('FAILED',err);process.exitCode=1;}
 },500);

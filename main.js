@@ -1,4 +1,4 @@
-/* Spacegroup Atlas 0.5 — self-contained WebGL2 + WebXR, no CDN.
+/* Spacegroup Atlas 0.6 — self-contained WebGL2 + WebXR, no CDN.
    CC0 geometry: Kenney Mini Forest and Pattern Packs. Source MIT.
    Group actions remain exact; the finite/faded viewing window is not a space-group invariant. */
 (()=>{'use strict';
@@ -39,7 +39,7 @@ const point=(m,p)=>[m[0]*p[0]+m[4]*p[1]+m[8]*p[2]+m[12],m[1]*p[0]+m[5]*p[1]+m[9]
 const sub=(a,b)=>a.map((x,i)=>x-b[i]),add=(a,b)=>a.map((x,i)=>x+b[i]),scale=(a,s)=>a.map(v=>v*s),len=a=>Math.hypot(...a),norm=a=>scale(a,1/(len(a)||1));
 function rod(a,b,w){const delta=sub(b,a),l=len(delta),y=norm(delta),axis=Math.abs(y[1])>.92?[1,0,0]:[0,1,0],x=norm([axis[1]*y[2]-axis[2]*y[1],axis[2]*y[0]-axis[0]*y[2],axis[0]*y[1]-axis[1]*y[0]]),z=[x[1]*y[2]-x[2]*y[1],x[2]*y[0]-x[0]*y[2],x[0]*y[1]-x[1]*y[0]],p=scale(add(a,b),.5);
  return new Float32Array([x[0]*w,x[1]*w,x[2]*w,0,y[0]*l,y[1]*l,y[2]*l,0,z[0]*w,z[1]*w,z[2]*w,0,...p,1]);}
-const state={group:2,motif:'archer',volume:'oak',representation:'motif',family:'opaque',pattern:0,coverage:.80,sheetOpacity:.80,densityCoverage:.30,period:.6,radius:4,fadeStart:3,occupancy:.25,scaleMotif:true,quality:'safe',exterior:false,safety:true,fadeViewer:false,grid:true,ground:false,animate:false,sliceFollow:true,sectionY:1.2,fadeStyle:'contrast',origin:[0,1.38,-1.7],seedFrac:[.21,.34,.27],seed:mid(),safeRadius:0,seedRadius:1,selected:null,dirty:true,anchor:0,menu:false,menuRow:0,sliceAuto:false,followCenter:[0,0,0],instances:[],sceneCount:0,fadeEnd:6};
+const state={group:2,motif:'archer',volume:'oak',representation:'motif',family:'opaque',pattern:0,coverage:.22,sheetOpacity:.22,densityCoverage:.30,period:.6,radius:4,fadeStart:3,occupancy:.25,scaleMotif:true,quality:'safe',exterior:false,safety:true,fadeViewer:false,grid:true,ground:false,animate:false,sliceFollow:true,sectionY:1.2,fadeStyle:'contrast',origin:[0,1.38,-1.7],seedFrac:[.21,.34,.27],seed:mid(),safeRadius:0,seedRadius:1,selected:null,dirty:true,anchor:0,menu:false,menuRow:0,sliceAuto:false,followCenter:[0,0,0],instances:[],sceneCount:0,fadeEnd:6};
 const player={x:0,y:0,z:0,yaw:0,pitch:0,speed:1.15};
 let session=null,ref=null,lastFrame=0,trackHead=null,trackFrame=null,keys=new Set(),pressed=new Map(),menuPose=mid(),drag=false,dragLast=null,grab=null,nearSelected=-1,texLoaded=false,toastTime=0;
 wire(); // Populate controls before compiling WebGL shaders.
@@ -67,10 +67,18 @@ precision highp sampler3D;
 precision highp int;
 in vec3 vNormal,vTint,vPos;in vec2 vUV;in float vFade;
 uniform sampler2D uTex;uniform sampler3D uVolume;
-uniform int uTextured,uFadeStyle,uIsFill;uniform float uCoverageThreshold,uPeriod;uniform vec3 uLight,uOrigin;
+uniform int uTextured,uFadeStyle,uIsFill,uPanelSym;uniform float uCoverageThreshold,uPeriod;uniform vec3 uLight,uOrigin;
 out vec4 outColor;
 float bayer(vec2 p){ivec2 q=ivec2(mod(floor(p),4.));int i=q.x+4*q.y;float b[16]=float[16](0.,8.,2.,10.,12.,4.,14.,6.,3.,11.,1.,9.,15.,7.,13.,5.);return (b[i]+.5)/16.;}
-void main(){vec4 tex=uIsFill==1?texture(uVolume,(vPos-uOrigin)/uPeriod):uTextured==1?texture(uTex,vUV):vec4(1.);
+vec2 invariantUV(vec2 uv){
+  if(uPanelSym==1)return vec2(min(uv.x,1.-uv.x)*2.,uv.y); // a mirror
+  if(uPanelSym==2){vec2 inv=1.-uv;
+    return uv.x<inv.x || (abs(uv.x-inv.x)<.0001 && uv.y<inv.y)?uv:inv;}
+  if(uPanelSym==3)return 2.*min(uv,1.-uv); // orthogonal mirrors
+  if(uPanelSym==4){vec2 q=2.*abs(uv-.5);return vec2(max(q.x,q.y),min(q.x,q.y));} // D4
+  return uv;
+}
+void main(){vec4 tex=uIsFill==1?texture(uVolume,(vPos-uOrigin)/uPeriod):uTextured==1?texture(uTex,uIsFill==2?invariantUV(vUV):vUV):vec4(1.);
 // Sheet material uses baked, group-symmetrized Kenney RGBA, including transparency.
 if(tex.a<.02)discard;
 float fade=vFade;
@@ -80,7 +88,7 @@ if(uFadeStyle==0 && fade<.999 && fade<bayer(gl_FragCoord.xy))discard;
 float lighting=.74+.26*abs(dot(normalize(vNormal),normalize(uLight)));
 vec3 color=tex.rgb*vTint*lighting;
 if(uFadeStyle==3)color=mix(vec3(.018,.039,.066),color,fade);
-outColor=vec4(color,uIsFill==1?tex.a*uCoverageThreshold*fade:(uFadeStyle==1?fade:1.));
+outColor=vec4(color,uIsFill==2?tex.a*uCoverageThreshold*fade:(uIsFill==1?tex.a*uCoverageThreshold*fade:(uFadeStyle==1?fade:1.)));
 }`;
 const planeVS=`#version 300 es
 precision highp float;
@@ -130,7 +138,7 @@ precision highp float;layout(location=0) in vec2 aXY;uniform mat4 uVP,uModel;out
 const uiFS=`#version 300 es
 precision mediump float;in vec2 vUV;uniform sampler2D uTex;out vec4 outColor;void main(){outColor=texture(uTex,vec2(vUV.x,1.-vUV.y));}`;
 const meshShader=compile(VS,FS),sliceShader=compile(planeVS,planeFS),floorShader=compile(floorVS,floorFS),exteriorShader=compile(exteriorVS,exteriorFS),uiShader=compile(uiVS,uiFS),un=(p,n)=>gl.getUniformLocation(p,n);
-const mU={vp:un(meshShader,'uVP'),seed:un(meshShader,'uSeed'),viewer:un(meshShader,'uViewerCell'),origin:un(meshShader,'uOrigin'),period:un(meshShader,'uPeriod'),s0:un(meshShader,'uFadeStart'),s1:un(meshShader,'uFadeEnd'),txt:un(meshShader,'uTextured'),mode:un(meshShader,'uFadeStyle'),fill:un(meshShader,'uIsFill'),motif:un(meshShader,'uIsMotif'),cover:un(meshShader,'uCoverageThreshold'),tex:un(meshShader,'uTex'),volume:un(meshShader,'uVolume'),light:un(meshShader,'uLight')};
+const mU={vp:un(meshShader,'uVP'),seed:un(meshShader,'uSeed'),viewer:un(meshShader,'uViewerCell'),origin:un(meshShader,'uOrigin'),period:un(meshShader,'uPeriod'),s0:un(meshShader,'uFadeStart'),s1:un(meshShader,'uFadeEnd'),txt:un(meshShader,'uTextured'),mode:un(meshShader,'uFadeStyle'),fill:un(meshShader,'uIsFill'),motif:un(meshShader,'uIsMotif'),cover:un(meshShader,'uCoverageThreshold'),tex:un(meshShader,'uTex'),volume:un(meshShader,'uVolume'),light:un(meshShader,'uLight'),panelSym:un(meshShader,'uPanelSym')};
 const sU={vp:un(sliceShader,'uVP'),plane:un(sliceShader,'uPlane'),origin:un(sliceShader,'uOrigin'),period:un(sliceShader,'uPeriod'),cover:un(sliceShader,'uCoverageThreshold'),volume:un(sliceShader,'uVolume')};
 const uiU={vp:un(uiShader,'uVP'),model:un(uiShader,'uModel'),tex:un(uiShader,'uTex')};
 const fU={vp:un(floorShader,'uVP'),model:un(floorShader,'uModel'),center:un(floorShader,'uCenter'),near:un(floorShader,'uNear'),far:un(floorShader,'uFar')};
@@ -149,7 +157,7 @@ face([0,1,0],[[-.5,.5,.5],[.5,.5,.5],[.5,.5,-.5],[-.5,.5,-.5]]);
 face([0,-1,0],[[-.5,-.5,-.5],[.5,-.5,-.5],[.5,-.5,.5],[-.5,-.5,.5]]);
 return {v:new Float32Array(v),i:new Uint16Array(idx)};}
 function panelGeom(){const v=[],idx=[0,1,2,0,2,3];for(const [x,y,u,w] of [[-.5,-.5,0,0],[.5,-.5,1,0],[.5,.5,1,1],[-.5,.5,0,1]])v.push(x,y,0,0,0,1,u,w);return {v:new Float32Array(v),i:new Uint16Array(idx)};}
-let rods=mesh(boxGeom()),panels=mesh(panelGeom()),exteriorMesh=mesh(boxGeom()),motifs={},demoMeshes={},texture={},patternPixels={},loading=true;let volumeTexture=null,sheetTexture=null,volumeDirty=true,sheetDirty=true,volumeThreshold=.55,floorSource='headset floor reference',fixedSectionPose=null;let sheetRecordsSorted=[];const solidVolumes={};
+let rods=mesh(boxGeom()),panels=mesh(panelGeom()),exteriorMesh=mesh(boxGeom()),motifs={},demoMeshes={},texture={},loading=true;let volumeTexture=null,volumeDirty=true,volumeThreshold=.55,floorSource='headset floor reference',fixedSectionPose=null;let sheetRecordsSorted=[];const solidVolumes={};
 function upload(obj,arr){obj.records=arr;obj.instances=arr.length;const v=new Float32Array(arr.length*22);let i=0;for(const d of arr){v.set(d.m,i);i+=16;v.set(d.tint,i);i+=3;v.set(d.cell,i);i+=3;}gl.bindBuffer(gl.ARRAY_BUFFER,obj.instance);gl.bufferData(gl.ARRAY_BUFFER,v,gl.DYNAMIC_DRAW);}
 function makeTex(img){const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,img);gl.generateMipmap(gl.TEXTURE_2D);return t;}
 // Embedded binary assets make file:/// desktop testing work without a local server.
@@ -160,9 +168,9 @@ function embeddedBytes(file){const encoded=EMBEDDED[file];if(!encoded)return nul
 async function loadBinary(file){if(location.protocol==='file:'){const data=embeddedBytes(file);if(data)return data;throw Error('Missing embedded asset: '+file);}
  try{const response=await fetch(file);if(!response.ok)throw Error('HTTP '+response.status+' loading '+file);return await response.arrayBuffer();}
  catch(e){const fallback=embeddedBytes(file);if(fallback)return fallback;throw e;}}
-function loadImg(file,k){return new Promise((resolve,reject)=>{const im=new Image();im.onload=()=>{if(k){const can=document.createElement('canvas');can.width=im.naturalWidth;can.height=im.naturalHeight;const cx=can.getContext('2d',{willReadFrequently:true});cx.drawImage(im,0,0);patternPixels[k]={data:cx.getImageData(0,0,can.width,can.height).data,width:can.width,height:can.height};}resolve(makeTex(im));};im.onerror=()=>{if(!im.dataset.embeddedRetry && EMBEDDED[file]){im.dataset.embeddedRetry='1';im.src='data:image/png;base64,'+EMBEDDED[file];return;}reject(Error('Missing '+file));};im.src=(location.protocol==='file:'||!navigator.onLine)&&EMBEDDED[file]?'data:image/png;base64,'+EMBEDDED[file]:file;});}
+function loadImg(file){return new Promise((resolve,reject)=>{const im=new Image();im.onload=()=>resolve(makeTex(im));im.onerror=()=>{if(!im.dataset.embeddedRetry && EMBEDDED[file]){im.dataset.embeddedRetry='1';im.src='data:image/png;base64,'+EMBEDDED[file];return;}reject(Error('Missing '+file));};im.src=(location.protocol==='file:'||!navigator.onLine)&&EMBEDDED[file]?'data:image/png;base64,'+EMBEDDED[file]:file;});}
 async function loadAssets(){const paths=['target','tree','archer'];for(const name of paths){const data=await loadBinary(`assets/${name}.mesh`),dv=new DataView(data),n=dv.getUint32(0,true),count=dv.getUint32(4,true);const v=new Float32Array(data.slice(8,8+n*32)),i=new Uint16Array(data.slice(8+n*32,8+n*32+count*2));motifs[name]=mesh({v,i});demoMeshes[name]=mesh({v,i});upload(demoMeshes[name],[rec(mid(),[1.1,.92,.55],[0,0,0])]);motifs[name].radius=Math.max(...Array.from({length:n},(_,k)=>Math.hypot(v[k*8],v[k*8+1],v[k*8+2])));}
-texture.forest=await loadImg('assets/forest_colormap.png');for(const type of ['opaque','line'])for(let i=0;i<5;i++)texture[type+i]=await loadImg(`assets/${type}_${(type==='opaque'?[7,12,16,23,27]:[2,7,12,18,25])[i].toString().padStart(2,'0')}.png`,type+i);
+texture.forest=await loadImg('assets/forest_colormap.png');for(const type of ['opaque','line'])for(let i=0;i<5;i++)texture[type+i]=await loadImg(`assets/${type}_${(type==='opaque'?[7,12,16,23,27]:[2,7,12,18,25])[i].toString().padStart(2,'0')}.png`);
 // Keep all solid fields available for immediate menu switching, including file:// usage.
 for(const kind of ['oak','walnut','strata']){
  const raw=new Uint8Array(await loadBinary('assets/volume_'+kind+'.rgba'));
@@ -172,12 +180,21 @@ for(const kind of ['oak','walnut','strata']){
 loading=false;changeGroup(state.group);syncUI();notify('Ready · solid textures available');}
 // Independent data paths: a symmetrized Kenney RGBA wall material, and a genuine 3D density field.
 // Both are invariant under the selected finite point/screw operation group on the voxel grid.
-const VOL_N=64,SHEET_N=48,volumeHist=new Uint32Array(256);
-function upload3D(existing,data,N=VOL_N){const tex=existing||gl.createTexture();gl.bindTexture(gl.TEXTURE_3D,tex);
+const VOL_N=64,volumeHist=new Uint32Array(256);
+function upload3D(existing,data,N=VOL_N){const tex=existing||gl.createTexture();
+ // WebGL forbids UNPACK_FLIP_Y_WEBGL and UNPACK_PREMULTIPLY_ALPHA_WEBGL
+ // with texImage3D(ArrayBufferView). Prior 2D image uploads set FLIP_Y=true,
+ // making every 3D texture invalid and all fill modes black/invisible.
+ gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);
+ gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
+ gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
+ gl.bindTexture(gl.TEXTURE_3D,tex);
  gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
  gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
  for(const axis of [gl.TEXTURE_WRAP_S,gl.TEXTURE_WRAP_T,gl.TEXTURE_WRAP_R])gl.texParameteri(gl.TEXTURE_3D,axis,gl.REPEAT);
- gl.texImage3D(gl.TEXTURE_3D,0,gl.RGBA8,N,N,N,0,gl.RGBA,gl.UNSIGNED_BYTE,data);return tex;}
+ gl.texImage3D(gl.TEXTURE_3D,0,gl.RGBA8,N,N,N,0,gl.RGBA,gl.UNSIGNED_BYTE,data);
+ const error=gl.getError();if(error!==gl.NO_ERROR)throw Error('3D texture upload failed: WebGL error 0x'+error.toString(16));
+ return tex;}
 function canonicalPoint(x,y,z,ops){let bx=2,by=2,bz=2;
  for(const o of ops){const r=o.r,t=o.t;
  const X=mod(r[0]*x+r[1]*y+r[2]*z+t[0]),Y=mod(r[3]*x+r[4]*y+r[5]*z+t[1]),Z=mod(r[6]*x+r[7]*y+r[8]*z+t[2]);
@@ -202,15 +219,6 @@ function canonicalMap(g){
 }
 function rebuildVolume(){if(loading)return;
  const N=VOL_N,ops=GROUPS[state.group].ops;
- if(sheetDirty&&state.representation==='sheet'){const source=patternPixels[state.family+state.pattern];if(source){const S=SHEET_N,pixels=new Uint8Array(S*S*S*4);let idx=0;
-  for(let z=0;z<S;z++)for(let y=0;y<S;y++)for(let x=0;x<S;x++){
-   const [bx,by,bz]=canonicalPoint((x+.5)/S,(y+.5)/S,(z+.5)/S,ops);
-   const u=mod(bx+.17*by+.07*bz),v=mod(.13*bx+by+.31*bz);
-   const xx=Math.min(source.width-1,Math.floor(u*source.width)),yy=Math.min(source.height-1,Math.floor(v*source.height));
-   const q=4*(yy*source.width+xx);pixels[idx++]=source.data[q];pixels[idx++]=source.data[q+1];pixels[idx++]=source.data[q+2];pixels[idx++]=source.data[q+3];
-  }
-  sheetTexture=upload3D(sheetTexture,pixels,S);sheetDirty=false;
- }}
  if(!volumeDirty||state.representation!=='slice')return;
  const source=solidVolumes[state.volume];
  if(!source)throw Error('Missing solid texture '+state.volume);
@@ -225,7 +233,7 @@ function rebuildVolume(){if(loading)return;
 }
 function updateCoverageThreshold(){volumeThreshold=state.coverage;}
 function rec(m,tint,cell,extra={}){return {m,tint,cell,...extra};}
-function changeGroup(i){state.group=(i+GROUPS.length)%GROUPS.length;volumeDirty=true;sheetDirty=true;if(state.quality==='safe'||state.quality==='balanced'){const r=(state.group===7?4:state.group===6?5:6)+(state.quality==='balanced'?1:0);state.radius=r;state.fadeStart=Math.max(0,r-2);}state.seedFrac=[.21,.34,.27];resetSeed();state.dirty=true;syncUI();notify(GROUPS[state.group].symbol+' · '+GROUPS[state.group].desc);}
+function changeGroup(i){state.group=(i+GROUPS.length)%GROUPS.length;volumeDirty=true;if(state.quality==='safe'||state.quality==='balanced'){const r=(state.group===7?4:state.group===6?5:6)+(state.quality==='balanced'?1:0);state.radius=r;state.fadeStart=Math.max(0,r-2);}state.seedFrac=[.21,.34,.27];resetSeed();state.dirty=true;syncUI();notify(GROUPS[state.group].symbol+' · '+GROUPS[state.group].desc);}
 function initialPose(){const p=state.period,o=state.origin;return mt(o[0]+p*state.seedFrac[0],o[1]+p*state.seedFrac[1],o[2]+p*state.seedFrac[2]);}
 function safeSize(){const ops=GROUPS[state.group].ops,p=state.seedFrac;const centers=[];for(const o of ops)for(let x=-1;x<=1;x++)for(let y=-1;y<=1;y++)for(let z=-1;z<=1;z++){const v=rV(o.r,p);centers.push([v[0]+o.t[0]+x,v[1]+o.t[1]+y,v[2]+o.t[2]+z]);}let min=Infinity;for(const q of centers){const d=len(sub(q,p));if(d>1e-5)min=Math.min(min,d);}return min;}
 function defaultSize(){const rad=state.motif==='archer'?motifs.archer?.radius:state.motif==='tree'?motifs.tree?.radius:state.motif==='target'?motifs.target?.radius:Math.SQRT1_2;
@@ -239,7 +247,6 @@ const motifRecords=[],sheetRecords=[],rodRecords=[],group=GROUPS[state.group],L=
  const faceSeeds=[mm(mt(ox+L*.5,oy+L*.5,oz),ms(L,L,1)),
   mm(mt(ox+L*.5,oy,oz+L*.5),mm(rx(-PI/2),ms(L,L,1))),
   mm(mt(ox,oy+L*.5,oz+L*.5),mm(ry(PI/2),ms(L,L,1)))];
- if(state.representation==='sheet'&&sheetDirty)rebuildVolume();
  if(state.representation==='slice'&&volumeDirty)rebuildVolume();
 const poolCenter=state.fadeViewer&&trackHead?trackHead.slice(12,15).map((v,i)=>Math.floor((v-state.origin[i])/L)):[0,0,0];state.followCenter=poolCenter;
 // Viewer-centered fade gets a one-cell invisible halo. Specimen-centered mode has no halo.
@@ -274,11 +281,19 @@ $('volumeRow').hidden=state.representation!=='slice';$('motifRow').hidden=state.
 syncStats();}
 function setVal(k,v){if(k==='group'){changeGroup(+v);return;}
  if(k==='period'){
+  v=clamp(Number(v),.10,2.5);if(!Number.isFinite(v))return;
   const old=state.period,head=trackHead||mt(player.x,player.y+1.64,player.z);
-  const pivot=[head[12],head[13],head[14]],ratio=v/old;
+  const eye=[head[12],head[13],head[14]],ratio=v/old;
   const originOld=state.origin.slice(),seedOld=state.seed.slice(12,15);
-  state.origin=pivot.map((x,i)=>x-(pivot[i]-originOld[i])*ratio);
-  const newSeed=seedOld.map((x,i)=>state.origin[i]+(x-originOld[i])*ratio);
+  // Anchor the *current cell center* in physical space, NOT the eye itself.
+  // Scaling all distances and objects around the eye gave an almost identical
+  // perspective image at every period -- v0.5's apparent broken slider.
+  // Keeping the local cell's center fixed makes cell size/motif scale visibly
+  // change while avoiding translation relative to a distant world origin.
+  const home=eye.map((x,i)=>Math.floor((x-originOld[i])/old));
+  const fixedCenter=home.map((c,i)=>originOld[i]+(c+.5)*old);
+  state.origin=fixedCenter.map((x,i)=>x-(home[i]+.5)*v);
+  const newSeed=seedOld.map((x,i)=>fixedCenter[i]+(x-fixedCenter[i])*ratio);
   for(let i=0;i<3;i++){if(state.scaleMotif)for(let j=0;j<3;j++)state.seed[j*4+i]*=ratio;state.seed[12+i]=newSeed[i];}
   state.period=v;state.dirty=true;syncUI();return;
  }
@@ -293,7 +308,7 @@ if(k==='motif'||k==='occupancy'||k==='safety')if(!grab)resetSeed();
 if(k==='representation'&&state.representation==='slice')fixedSectionPose=null;
 if(k==='sliceFollow'&&!v)fixedSectionPose=null;
 if(k==='sliceFollow'&&v)fixedSectionPose=null;
-if(['family','pattern'].includes(k)){sheetDirty=true;}if(k==='volume'){volumeDirty=true;notify('Solid texture · '+v);}
+if(k==='volume'){volumeDirty=true;notify('Solid texture · '+v);}
 // The baked volume is expressed in fractional coordinates and independent of cell period.
 if(k==='radius'){state.quality='custom';if(state.fadeStart>state.radius)state.fadeStart=state.radius;}
 if(k==='fadeStart')state.fadeStart=Math.min(v,state.radius);
@@ -312,7 +327,7 @@ case 13:return state.grid?'ON':'OFF';case 14:return state.ground?'ON':'OFF';case
 case 16:return state.scaleMotif?'ON':'OFF';case 17:return state.sliceFollow?'ON':'OFF';case 18:return state.sectionY.toFixed(2)+' m';
 case 19:return state.exterior?'ON':'OFF';case 20:return state.animate&&state.representation==='motif'?'ON':'OFF';
 case 21:return ANCHORS[state.anchor][0];default:return '';}}
-function drawMenu(){ctx.clearRect(0,0,1200,1520);ctx.fillStyle='rgba(7,21,33,.96)';ctx.fillRect(0,0,1200,1520);ctx.strokeStyle='#528d9f';ctx.lineWidth=6;ctx.strokeRect(8,8,1184,1504);ctx.fillStyle='#85ebdf';ctx.font='bold 63px system-ui';ctx.fillText('SPACEGROUP ATLAS',58,110);ctx.fillStyle='#d4e5f4';ctx.font='35px system-ui';ctx.fillText('Room-scale symmetry lab  ·  0.5',60,166);
+function drawMenu(){ctx.clearRect(0,0,1200,1520);ctx.fillStyle='rgba(7,21,33,.96)';ctx.fillRect(0,0,1200,1520);ctx.strokeStyle='#528d9f';ctx.lineWidth=6;ctx.strokeRect(8,8,1184,1504);ctx.fillStyle='#85ebdf';ctx.font='bold 63px system-ui';ctx.fillText('SPACEGROUP ATLAS',58,110);ctx.fillStyle='#d4e5f4';ctx.font='35px system-ui';ctx.fillText('Room-scale symmetry lab  ·  0.6',60,166);
 MENU.forEach((title,i)=>{const y=222+i*52;ctx.fillStyle=i===state.menuRow?'rgba(55,154,165,.40)':'rgba(0,0,0,0)';ctx.fillRect(35,y-39,1130,48);ctx.fillStyle='#d7e8f8';ctx.font=i===state.menuRow?'bold 28px system-ui':'27px system-ui';ctx.fillText(title,63,y);ctx.fillStyle='#88ecdb';ctx.textAlign='right';ctx.fillText(menuValue(i),1123,y);ctx.textAlign='left';});ctx.font='30px system-ui';ctx.fillStyle='#aacbd4';ctx.fillText('Right stick: navigate / adjust    A: select    B: close',57,1480);
 gl.bindTexture(gl.TEXTURE_2D,menuTexture);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,menuCanvas);}
 function anchorFocus(){const [label,p]=ANCHORS[state.anchor];let target=[0,1.5,-1.45];if(trackHead){const dir=norm([-trackHead[8],0,-trackHead[10]]);target=[trackHead[12]+dir[0]*1.15,trackHead[13]-.15,trackHead[14]+dir[2]*1.15];}const desired=add(state.origin,scale(p,state.period));const d=sub(target,desired);state.origin=add(state.origin,d);state.seed=mm(mt(...d),state.seed);state.dirty=true;notify('Focus · '+label);}
@@ -349,14 +364,14 @@ function setupMaterial(vp,head,mode){gl.useProgram(meshShader);
  gl.uniform3fv(mU.viewer,c);gl.uniform3fv(mU.origin,state.origin);gl.uniform1f(mU.period,state.period);
  gl.uniform1f(mU.s0,state.fadeStart);gl.uniform1f(mU.s1,state.radius);
  gl.uniform1i(mU.mode,mode===undefined?(state.fadeStyle==='dither'?0:state.fadeStyle==='alpha'?1:state.fadeStyle==='cut'?2:state.fadeStyle==='contrast'?3:4):mode);
- gl.uniform1f(mU.cover,volumeThreshold);gl.uniform1i(mU.txt,0);gl.uniform1i(mU.fill,0);
+ gl.uniform1f(mU.cover,volumeThreshold);gl.uniform1i(mU.txt,0);gl.uniform1i(mU.fill,0);gl.uniform1i(mU.panelSym,0);
  gl.activeTexture(gl.TEXTURE0);gl.uniform1i(mU.tex,0);gl.bindTexture(gl.TEXTURE_2D,texture.forest||null);
  gl.activeTexture(gl.TEXTURE1);gl.uniform1i(mU.volume,1);gl.bindTexture(gl.TEXTURE_3D,volumeTexture);
  gl.disable(gl.CULL_FACE);gl.enable(gl.DEPTH_TEST);
 }
 function drawOne(obj,seed,tex,textured,fill,motif){if(!obj?.instances)return;
  gl.uniformMatrix4fv(mU.seed,false,seed);gl.uniform1i(mU.txt,textured?1:0);
- gl.uniform1i(mU.fill,fill?1:0);gl.uniform1i(mU.motif,motif?1:0);
+ gl.uniform1i(mU.fill,fill===2?2:(fill?1:0));gl.uniform1i(mU.motif,motif?1:0);
  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,tex||texture.forest);
  gl.bindVertexArray(obj.vao);
  gl.drawElementsInstanced(gl.TRIANGLES,obj.count,gl.UNSIGNED_SHORT,0,obj.instances);
@@ -372,12 +387,15 @@ function drawMeshes(vp,head){if(state.representation==='sheet'&&sheetRecordsSort
   drawOne(motifs[state.motif],state.seed,texture.forest,true,false,true);
   if(state.fadeStyle==='alpha'){gl.depthMask(true);gl.disable(gl.BLEND);}
  }else if(state.representation==='sheet'){
-  if(sheetTexture){
-   gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.depthMask(false);
-   gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_3D,sheetTexture);
-   gl.uniform1f(mU.cover,state.coverage);drawOne(panels,mid(),null,false,true,true);
-   gl.depthMask(true);gl.disable(gl.BLEND);
-  }
+  // Render the original Kenney PNG on the actual orbit of each full cell face.
+  // This preserves the image's full resolution and native alpha, unlike the
+  // obsolete 48^3 sampled field (which also failed texture upload in v0.5).
+  const sym=[0,2,1,4,4,4,3,4][state.group];
+  gl.uniform1i(mU.panelSym,sym);
+  gl.uniform1f(mU.cover,state.coverage);
+  gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.depthMask(false);
+  drawOne(panels,mid(),texture[state.family+state.pattern],true,2,true);
+  gl.depthMask(true);gl.disable(gl.BLEND);
  }
  if(state.animate&&state.representation==='motif'&&!grab)drawGeneratorDemonstration(vp,head);
 }
@@ -503,5 +521,5 @@ for(const k of ['safety','fadeViewer','grid','ground','animate','sliceFollow','e
 window.addEventListener('keydown',e=>{if(e.target instanceof HTMLInputElement||e.target instanceof HTMLSelectElement)return;keys.add(e.code);if(e.repeat)return;if(e.code==='BracketRight')changeGroup(state.group+1);if(e.code==='BracketLeft')changeGroup(state.group-1);if(e.code==='KeyM'){const a=['archer','target','tree'];setVal('motif',a[(a.indexOf(state.motif)+1)%a.length]);}if(e.code==='KeyH'){const head=mm(mt(player.x,player.y+1.64,player.z),ry(player.yaw));openMenu(head);}if(e.code==='KeyC'||e.code==='KeyV'){const h=mm(mt(player.x,player.y+1.64,player.z),ry(player.yaw));toggleGrab([h[12],h[13],h[14]],norm([-h[8],0,-h[10]]),h);}});
 window.addEventListener('keyup',e=>keys.delete(e.code));cv.addEventListener('pointerdown',e=>{drag=true;dragLast=[e.clientX,e.clientY];cv.setPointerCapture(e.pointerId);});cv.addEventListener('pointermove',e=>{if(!drag)return;player.yaw-=(e.clientX-dragLast[0])*.005;player.pitch=clamp(player.pitch-(e.clientY-dragLast[1])*.005,-1.25,1.25);dragLast=[e.clientX,e.clientY];});cv.addEventListener('pointerup',()=>drag=false);}
 try{syncUI();loadAssets().catch(error);requestAnimationFrame(desktop);}catch(e){error(e);}
-window.SPACEGROUP_DEBUG={GROUPS,state,closure,compose,key,cellOp,point,mm,resetAll,regen,changeGroup,canonicalKey,defaultSize,detR,get floorSource(){return floorSource},get volumeTexture(){return volumeTexture},get materialNames(){return Object.keys(solidVolumes)},get canonicalCache(){return canonicalCache},get sheetCount(){return panels.instances},get sheetTexture(){return sheetTexture},setVal,render};
+window.SPACEGROUP_DEBUG={GROUPS,state,closure,compose,key,cellOp,point,mm,resetAll,regen,changeGroup,canonicalKey,defaultSize,detR,get floorSource(){return floorSource},get volumeTexture(){return volumeTexture},getGLError(){return gl.getError()},get materialNames(){return Object.keys(solidVolumes)},get canonicalCache(){return canonicalCache},get sheetCount(){return panels.instances},get sheetTexture(){return texture[state.family+state.pattern]||null},setVal,render};
 })();
