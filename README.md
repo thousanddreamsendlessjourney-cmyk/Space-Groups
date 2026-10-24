@@ -1,29 +1,31 @@
-# Spacegroup Atlas v0.8 — all 230 space groups and independent physical scale
+# Spacegroup Atlas v0.9 — all 230 space groups and restored v0.3-style specimen scaling
 
 A browser-based WebGL2/WebXR space-group laboratory for Meta Quest 3 and desktop. All 230 three-dimensional crystallographic space groups are supported, with their actual conventional-cell rotational and fractional-translational operations. No Blender, Node, CDN, npm, or login is required at runtime.
 
 ## Install
 
-Extract `Spacegroup_Atlas_Quest3_v0.8.zip` to the **root** of the existing GitHub Pages repository, replacing v0.7. Preserve the directory structure, particularly:
+Extract `Spacegroup_Atlas_Quest3_v0.9.zip` to the **root** of the existing GitHub Pages repository, replacing v0.8. Preserve the directory structure, particularly:
 
 - `index.html`, `style.css`, `main.js`
 - `spacegroups-data.js` — complete 230-group operation catalog; **new, required**
 - `fundamental-faces.js` — the geometric face data for **all 230**; **required**
 - `assets-inline.js`, `volume-inline.js`, and the `assets/` directory.
 
-Hard-refresh Quest Browser after uploading; cache-busting URLs in `index.html` use v0.8.
+Hard-refresh Quest Browser after uploading; cache-busting URLs in `index.html` use v0.9.
 
 `index.html` can also be opened on desktop as a file; assets are included in inlined fallback bundles. GitHub Pages (HTTPS) is needed for Quest's immersive WebXR mode.
 
-## What changed in v0.8
+## What changed in v0.9
 
-### 1. Cell scale and motif size no longer act as the same control
+### 1. Restored v0.3-style whole-specimen cell scaling
 
-**Cell lattice scale** (0.10–2.50 meters) changes the actual translation lengths and coordinates of the complete lattice. The corresponding conventional-cell basis is scaled isotropically; for noncubic systems, the three physical edge lengths may differ even when the reference scale is one meter.
+**Cell period** scales the full crystal specimen uniformly about the *fixed lattice origin* (the cell origin used by the group renderer). This is intentionally simple, like v0.3: a 2× period doubles distances between corresponding lattice points **and doubles the motifs themselves**. The relative motif size remains fixed. No inverse-size effect. No camera- or viewer-centered anchor calculation. The visual scene will grow or shrink around the origin even if that moves nearby cells past the viewer.
 
-When this control changes, the program calculates the **center of the unit cell containing the current viewer**, holds that cell center fixed, and rescales crystal geometry around it. It does **not** modify the headset/player transform, tracked-floor height, or the motif's 3×3 scale/orientation matrix. The motif-size control has independent **centimeter** units; the old "Scale motif with cell" option has been removed. The generic initial seed location is allowed to move with its cell, but its physical diameter is unchanged. The *Safe starting placement* option can still clamp an excessively large seed upon re-placement, not while dragging the cell-size slider.
+**Motif size** is now a **percentage relative to cell period**, not an absolute number of centimeters. It changes motif size without changing the cell period. The default 27% at a 0.60-meter period gives approximately the same 16-centimeter motif baseline as v0.8, before automatic safe-size clamping. New placements and group changes respect the same relative sizing at any period. Custom grabbed motifs preserve their pose and rotate/scale together with the specimen while the period changes.
 
-The comfort floor is always drawn at **y = -0.018 m in the WebXR floor reference**, independent of the lattice's origin or scale. It follows the viewer horizontally only. (When the browser provides only a `local` rather than a `local-floor` reference, this is an approximation.)
+**Tracked headset, player position, and floor are not transformed**. The floor remains at y = -0.018 m in the WebXR local-floor reference. The specimen's fixed lattice origin is not a floor reference, and neither moving it nor scaling around it changes the floor height. The floor plane may appear to move *relative to the rescaled crystal*, as it should, because the crystal changes in world space while the floor stays put.
+
+To verify visually: in P1, enable lattice guides, set period 0.60 m then 1.20 m. Corresponding grid corners must separate by 2× and the archer must also grow by 2×, while the floor stays at the same physical height and the view never jumps. Change **Motif size** afterward: only the archer changes, not the grid. Decreasing back to 0.60 m restores original geometry.
 
 ### 2. Browse all 230 space groups
 
@@ -47,7 +49,7 @@ Hexagonal/trigonal operations therefore produce actual oblique hexagonal geometr
 
 ### 4. All representations retain their roles
 
-- **Contained motif**: entire orbit of the original Kenney archer, target, or tree under the chosen space group. Motif size is independent of cell size. The instance generator drops copies that would be invisible beyond the selected fade cutoff, reducing GPU workload.
+- **Contained motif**: entire orbit of the original Kenney archer, target, or tree under the chosen space group. Motif size is a fixed fraction of cell period. The instance generator drops copies that would be invisible beyond the selected fade cutoff, reducing GPU workload.
 - **2D Fill**: precomputed Dirichlet/Voronoi fundamental-domain faces, including oblique internal boundaries and cell-wall planes, for *all 230* groups. Full-resolution Kenney opaque and translucent line patterns, alpha, and several-cell crop settings are retained. The **geometry** follows the exact space-group orbit. **Caveat**: the decorative material texture is sampled by periodic fractional coordinate rather than being strictly symmetrized under *every* one of the 230 nontrivial groups. Geometric symmetry is exact; decorative linework under every group operation is not yet guaranteed. It remains especially important to distinguish texture discontinuities from real orbit boundaries.
 - **3D Fill**: one moving opaque section through an oak, walnut, or strata solid, or its optional complete one-cell exterior. The supplied 128³ material field is remapped onto a 144³ periodic voxel grid for compatibility with 1/3-, 1/4-, 1/6-, and 1/8-cell translations. That resampling does **not** add genuine texture detail; the underlying source remains 128³. Its volume is symmetry-averaged at discrete voxel positions through group generators, subject to voxel-interpolation approximation.
 
@@ -62,7 +64,7 @@ A high-order group can contain **up to 192 operations per primitive cell**. The 
 - Full 230-group operation sets and generator closures checked against Gemmi, with each operation preserving its group's crystal-system metric.
 - Full 230 Dirichlet face datasets generated from Euclidean Voronoi construction in the corresponding noncubic cell and clipped to the conventional cell; generators in `tools/`.
 - `node --check main.js` and `python tools/test_shaders.py`: all five GLSL ES3 shader pairs compile and link in the available OpenGL ES3 driver.
-- `python tools/test_controls_mock.py`: all 230 groups load in the UI; search, crystal-system filtering, high-order group switching, fill geometry initialization, section upload, and separate physical motif/cell scale are checked in a DOM simulator with mocked WebGL drawing calls.
+- `python tools/test_controls_mock.py`: all 230 groups load in the UI; search, crystal-system filtering, high-order group switching, fill geometry initialization, section upload, and whole-specimen period scaling are checked in a DOM simulator with mocked WebGL drawing calls.
 
 **Not validated here:** real browser WebGL raster output (Chromium in this workspace refuses to initialize WebGL2), native Quest performance, headset stereo, or controller behavior on every space group. The mock browser tests are *control tests*, not visual rendering tests. Please verify on your Quest before relying on this as a final visual release.
 

@@ -1,4 +1,4 @@
-/* Spacegroup Atlas 0.8 — self-contained WebGL2 + WebXR, no CDN.
+/* Spacegroup Atlas 0.9 — self-contained WebGL2 + WebXR, no CDN.
    CC0 geometry: Kenney Mini Forest and Pattern Packs. Source MIT.
    Group actions remain exact; the finite/faded viewing window is not a space-group invariant. */
 (()=>{'use strict';
@@ -52,7 +52,7 @@ const point=(m,p)=>[m[0]*p[0]+m[4]*p[1]+m[8]*p[2]+m[12],m[1]*p[0]+m[5]*p[1]+m[9]
 const sub=(a,b)=>a.map((x,i)=>x-b[i]),add=(a,b)=>a.map((x,i)=>x+b[i]),scale=(a,s)=>a.map(v=>v*s),len=a=>Math.hypot(...a),norm=a=>scale(a,1/(len(a)||1));
 function rod(a,b,w){const delta=sub(b,a),l=len(delta),y=norm(delta),axis=Math.abs(y[1])>.92?[1,0,0]:[0,1,0],x=norm([axis[1]*y[2]-axis[2]*y[1],axis[2]*y[0]-axis[0]*y[2],axis[0]*y[1]-axis[1]*y[0]]),z=[x[1]*y[2]-x[2]*y[1],x[2]*y[0]-x[0]*y[2],x[0]*y[1]-x[1]*y[0]],p=scale(add(a,b),.5);
  return new Float32Array([x[0]*w,x[1]*w,x[2]*w,0,y[0]*l,y[1]*l,y[2]*l,0,z[0]*w,z[1]*w,z[2]*w,0,...p,1]);}
-const state={group:5,motif:'archer',volume:'oak',representation:'motif',family:'opaque',pattern:0,coverage:.22,sheetOpacity:.22,densityCoverage:.30,period:.6,radius:4,fadeStart:3,occupancy:.16,scaleMotif:false,quality:'safe',exterior:false,safety:true,fadeViewer:false,grid:true,ground:false,animate:false,sliceFollow:true,sectionY:1.2,fadeStyle:'contrast',origin:[0,1.38,-1.7],seedFrac:[.21,.34,.27],seed:mid(),safeRadius:0,seedRadius:1,selected:null,dirty:true,anchor:0,menu:false,menuRow:0,sliceAuto:false,followCenter:[0,0,0],fadeAnchor:null,instances:[],sceneCount:0,fadeEnd:6};
+const state={group:5,motif:'archer',volume:'oak',representation:'motif',family:'opaque',pattern:0,coverage:.22,sheetOpacity:.22,densityCoverage:.30,period:.6,radius:4,fadeStart:3,occupancy:.27,scaleMotif:false,quality:'safe',exterior:false,safety:true,fadeViewer:false,grid:true,ground:false,animate:false,sliceFollow:true,sectionY:1.2,fadeStyle:'contrast',origin:[0,1.38,-1.7],seedFrac:[.21,.34,.27],seed:mid(),safeRadius:0,seedRadius:1,selected:null,dirty:true,anchor:0,menu:false,menuRow:0,sliceAuto:false,followCenter:[0,0,0],fadeAnchor:null,instances:[],sceneCount:0,fadeEnd:6};
 const player={x:0,y:0,z:0,yaw:0,pitch:0,speed:1.15};
 let session=null,ref=null,lastFrame=0,trackHead=null,trackFrame=null,keys=new Set(),pressed=new Map(),menuPose=mid(),drag=false,dragLast=null,grab=null,nearSelected=-1,texLoaded=false,toastTime=0;
 wire(); // Populate controls before compiling WebGL shaders.
@@ -329,7 +329,7 @@ function changeGroup(i){
 function initialPose(){return mt(...cellPosition(state.seedFrac));}
 function safeSize(){const ops=GROUPS[state.group].ops,p=state.seedFrac;const centers=[];for(const o of ops)for(let x=-1;x<=1;x++)for(let y=-1;y<=1;y++)for(let z=-1;z<=1;z++){const v=rV(o.r,p);centers.push([v[0]+o.t[0]+x,v[1]+o.t[1]+y,v[2]+o.t[2]+z]);}let min=Infinity;for(const q of centers){const d=len(latticeVector(sub(q,p)));if(d>1e-5)min=Math.min(min,d);}return min;}
 function defaultSize(){const rad=state.motif==='archer'?motifs.archer?.radius:state.motif==='tree'?motifs.tree?.radius:state.motif==='target'?motifs.target?.radius:Math.SQRT1_2;
-const desired=state.occupancy;return state.safety?Math.min(desired,Math.max(.01,safeSize()*.48/(rad||.8))):desired;}
+const desired=state.period*state.occupancy;return state.safety?Math.min(desired,Math.max(.01,safeSize()*.48/(rad||.8))):desired;}
 function resetSeed(){state.seedFrac=state.safety?[.211,.347,.273]:[0,0,0];grab=null;state.canonKey=null;state.animBase=null;state.animPhase=0;const p=initialPose();state.seed=mm(p,ms(defaultSize()));state.dirty=true;}
 function resetAll(){player.x=0;player.y=0;player.z=0;player.yaw=0;player.pitch=0;state.origin=[0,1.38,-1.7];state.fadeAnchor=null;resetSeed();notify('Seed and view reset');}
 function cellOp(c,o){
@@ -373,24 +373,27 @@ upload(rods,rodRecords);syncStats();}
 function syncStats(){const g=GROUPS[state.group];$('status').textContent=`${g.system.toUpperCase()} · ${g.symbol} · #${g.id} · ${g.ops.length} operations\n${state.sceneCount.toLocaleString()} loaded instances · ${Math.round(state.period*100)} cm cell scale\n${state.safety?'Safe initial placement':'Free initial placement'} · ${state.representation==='slice'?'Solid '+state.volume+' / section':state.representation==='sheet'?'Full fundamental-face orbit':'3D motif orbit'}${state.sceneCount>20000?'\nHigh instance count: reduce radius if Quest performance drops':''}`;}
 function syncUI(){for(const [id,value] of Object.entries({group:state.group,motif:state.motif,volume:state.volume,representation:state.representation,family:state.family,pattern:state.pattern,coverage:state.coverage*100,period:state.period,radius:state.radius,fadeStart:state.fadeStart,occupancy:state.occupancy*100,sectionY:state.sectionY,fadeStyle:state.fadeStyle,quality:state.quality}))$(id).value=String(value);
 for(const k of ['safety','fadeViewer','grid','ground','animate','sliceFollow','exterior'])$(k).checked=state[k];
-$('periodValue').textContent=state.period.toFixed(2)+' m';$('radiusValue').textContent=state.radius+' periods';$('fadeStartValue').textContent=state.fadeStart+' periods';$('occupancyValue').textContent=Math.round(state.occupancy*100)+' cm';$('sectionYValue').textContent=state.sectionY.toFixed(2)+' m';$('coverageValue').textContent=Math.round(state.coverage*100)+'%';$('coverageLabel').textContent='Wall opacity';
+$('periodValue').textContent=state.period.toFixed(2)+' m';$('radiusValue').textContent=state.radius+' periods';$('fadeStartValue').textContent=state.fadeStart+' periods';$('occupancyValue').textContent=Math.round(state.occupancy*100)+'% of cell';$('sectionYValue').textContent=state.sectionY.toFixed(2)+' m';$('coverageValue').textContent=Math.round(state.coverage*100)+'%';$('coverageLabel').textContent='Wall opacity';
 $('volumeRow').hidden=state.representation!=='slice';$('motifRow').hidden=state.representation!=='motif';$('occupancyRow').hidden=state.representation!=='motif';$('familyRow').hidden=state.representation!=='sheet';$('textureRow').hidden=state.representation!=='sheet';$('coverageRow').hidden=state.representation!=='sheet';$('sliceDepthRow').hidden=state.representation!=='slice';$('exteriorRow').hidden=state.representation!=='slice';$('animateRow').hidden=state.representation!=='motif';$('sliceFollowRow').hidden=state.representation!=='slice';
 syncStats();}
 function setVal(k,v){if(k==='group'){changeGroup(+v);return;}
  if(k==='period'){
-  v=clamp(Number(v),.10,2.5);if(!Number.isFinite(v))return;
-  const old=state.period,ratio=v/old;
-  // Use the center of the CURRENT cell as a fixed point. The room-scale
-  // viewer and XR floor are never transformed. Only crystal geometry moves.
-  const head=trackHead||mt(player.x,player.y+1.64,player.z);
-  const eye=[head[12],head[13],head[14]];
-  const oldCoords=worldFrac(eye);
-  const cellCenter=cellPosition(oldCoords.map(x=>Math.floor(x)+.5));
-  state.origin=add(cellCenter,scale(sub(state.origin,cellCenter),ratio));
-  // Keep the seed's fractional position but NEVER scale its orientation or size.
-  const seedAt=add(cellCenter,scale(sub(point(state.seed,[0,0,0]),cellCenter),ratio));
-  state.seed[12]=seedAt[0];state.seed[13]=seedAt[1];state.seed[14]=seedAt[2];
-  state.period=v;state.dirty=true;syncUI();return;
+  v=clamp(Number(v),.10,2.5);
+  if(!Number.isFinite(v))return;
+  const ratio=v/state.period;
+  if(Math.abs(ratio-1)<1e-9)return;
+  // v0.3 semantics: enlarge/shrink the ENTIRE crystal specimen about its
+  // original, stationary lattice origin. Do not move the headset, player,
+  // tracked-floor plane, or origin to compensate for the visual change.
+  // Motifs grow with their cells; the motif-size control changes their
+  // *relative* size, not the scaling of the cell itself.
+  for(let j=0;j<3;j++)for(let i=0;i<3;i++)state.seed[j*4+i]*=ratio;
+  for(let i=0;i<3;i++)state.seed[12+i]=state.origin[i]+ratio*(state.seed[12+i]-state.origin[i]);
+  // The non-viewer-following crop is part of the specimen. Keep it in
+  // the same fractional position when the specimen is rescaled.
+  if(state.fadeAnchor)state.fadeAnchor=add(state.origin,scale(sub(state.fadeAnchor,state.origin),ratio));
+  state.period=v;
+  state.dirty=true;syncUI();return;
  }
  if(k==='representation'&&v!=='motif')state.animate=false;
  if(k==='representation'){state.coverage=v==='slice'?state.densityCoverage:state.sheetOpacity;fixedSectionPose=null;}
@@ -417,13 +420,13 @@ const MENU=['Crystal system','Point group','Group','Representation','3D motif / 
 const ANCHORS=[['volume center',[.5,.5,.5]],['face center',[.5,.5,0]],['cell corner',[0,0,0]],['edge midpoint',[.5,0,0]]];
 function menuValue(k){if(k===0)return GROUPS[state.group].system;if(k===1)return GROUPS[state.group].pointGroup;k-=2;if(k>=16)k++;switch(k){case 0:return '#'+GROUPS[state.group].id+' '+GROUPS[state.group].short;case 1:return state.representation;case 2:return state.representation==='slice'?state.volume:state.motif;
 case 3:return state.family;case 4:return String(state.pattern+1);case 5:return state.quality;case 6:return Math.round(state.period*100)+' cm';
-case 7:return state.radius+' cells';case 8:return state.fadeStart+' cells';case 9:return Math.round(state.occupancy*100)+' cm';
+case 7:return state.radius+' cells';case 8:return state.fadeStart+' cells';case 9:return Math.round(state.occupancy*100)+'% of cell';
 case 10:return state.representation==='sheet'?Math.round(state.coverage*100)+'%':'n/a';case 11:return state.fadeStyle;case 12:return state.fadeViewer?'ON':'OFF';
 case 13:return state.grid?'ON':'OFF';case 14:return state.ground?'ON':'OFF';case 15:return state.safety?'ON':'OFF';
-case 16:return 'Independent';case 17:return state.sliceFollow?'ON':'OFF';case 18:return state.sectionY.toFixed(2)+' m';
+case 16:return 'Relative';case 17:return state.sliceFollow?'ON':'OFF';case 18:return state.sectionY.toFixed(2)+' m';
 case 19:return state.exterior?'ON':'OFF';case 20:return state.animate&&state.representation==='motif'?'ON':'OFF';
 case 21:return ANCHORS[state.anchor][0];default:return '';}}
-function drawMenu(){ctx.clearRect(0,0,1200,1520);ctx.fillStyle='rgba(7,21,33,.96)';ctx.fillRect(0,0,1200,1520);ctx.strokeStyle='#528d9f';ctx.lineWidth=6;ctx.strokeRect(8,8,1184,1504);ctx.fillStyle='#85ebdf';ctx.font='bold 63px system-ui';ctx.fillText('SPACEGROUP ATLAS',58,110);ctx.fillStyle='#d4e5f4';ctx.font='35px system-ui';ctx.fillText('Room-scale symmetry lab  ·  0.8',60,166);
+function drawMenu(){ctx.clearRect(0,0,1200,1520);ctx.fillStyle='rgba(7,21,33,.96)';ctx.fillRect(0,0,1200,1520);ctx.strokeStyle='#528d9f';ctx.lineWidth=6;ctx.strokeRect(8,8,1184,1504);ctx.fillStyle='#85ebdf';ctx.font='bold 63px system-ui';ctx.fillText('SPACEGROUP ATLAS',58,110);ctx.fillStyle='#d4e5f4';ctx.font='35px system-ui';ctx.fillText('Room-scale symmetry lab  ·  0.9',60,166);
 MENU.forEach((title,i)=>{const y=216+i*49;ctx.fillStyle=i===state.menuRow?'rgba(55,154,165,.40)':'rgba(0,0,0,0)';ctx.fillRect(35,y-39,1130,48);ctx.fillStyle='#d7e8f8';ctx.font=i===state.menuRow?'bold 28px system-ui':'27px system-ui';ctx.fillText(title,63,y);ctx.fillStyle='#88ecdb';ctx.textAlign='right';ctx.fillText(menuValue(i),1123,y);ctx.textAlign='left';});ctx.font='30px system-ui';ctx.fillStyle='#aacbd4';ctx.fillText('Right stick: navigate / adjust    A: select    B: close',57,1480);
 gl.bindTexture(gl.TEXTURE_2D,menuTexture);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,menuCanvas);}
 function anchorFocus(){const [label,p]=ANCHORS[state.anchor];let target=[0,1.5,-1.45];if(trackHead){const dir=norm([-trackHead[8],0,-trackHead[10]]);target=[trackHead[12]+dir[0]*1.15,trackHead[13]-.15,trackHead[14]+dir[2]*1.15];}const desired=cellPosition(p);const d=sub(target,desired);state.origin=add(state.origin,d);state.seed=mm(mt(...d),state.seed);state.dirty=true;notify('Focus · '+label);}
@@ -445,7 +448,7 @@ function menuChange(direction=1){if(state.menuRow===0){systemStep(direction);dra
  case 13:setVal('grid',!state.grid);break;
  case 14:setVal('ground',!state.ground);break;
  case 15:setVal('safety',!state.safety);break;
- case 16:notify('Motif size is independent of cell period');break;
+ case 16:notify('Motif size is relative to cell period');break;
  case 17:setVal('sliceFollow',!state.sliceFollow);break;
  case 18:setVal('sectionY',clamp(state.sectionY+direction*.10,.25,3));break;
  case 19:setVal('exterior',!state.exterior);break;
